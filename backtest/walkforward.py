@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 
 import config
+from backtest.risk_metrics import as_loss
 from backtest.universe import equal_weight_index
 from research.combine_train import SPY_CACHE, _monthly_metrics, spy_monthly_returns, vol_matched_blend
 from factors.evaluate import _rebalance_dates
@@ -106,7 +107,7 @@ def print_walkforward(result: dict) -> dict:
         table.append({
             "window": f"{r['start'].year}-{r['end'].year}", "months": r["n"],
             "CAGR": _f(m["cagr"], pct=True), "Sharpe": _f(m["sharpe"]),
-            "Sortino": _f(m["sortino"]), "maxDD": _f(m["max_drawdown"], pct=True),
+            "Sortino": _f(m["sortino"]), "maxDD": _f(as_loss(m["max_drawdown"]), pct=True),
             "SPY_Sharpe": _f(spy["sharpe"] if spy else None),
             "beat_SPY": ("n/a" if spy is None else ("Y" if (m["sharpe"] or -9) > (spy["sharpe"] or -9) else "n")),
             "beat_EWmkt": ("n/a" if ew is None else ("Y" if (m["sharpe"] or -9) > (ew["sharpe"] or -9) else "n")),
@@ -123,7 +124,7 @@ def print_walkforward(result: dict) -> dict:
     print(f"Beat equal-weight survivorship-free market ({ew_windows} windows): "
           f"{beats_ew_sharpe}/{ew_windows} on Sharpe.")
     print(f"WORST window: {worst['start'].year}-{worst['end'].year} -> "
-          f"Sharpe {_f(worst['metrics']['sharpe'])}, maxDD {_f(worst['metrics']['max_drawdown'], pct=True)}, "
+          f"Sharpe {_f(worst['metrics']['sharpe'])}, maxDD {_f(as_loss(worst['metrics']['max_drawdown']), pct=True)}, "
           f"CAGR {_f(worst['metrics']['cagr'], pct=True)}.")
     return {"n_windows": len(rows), "spy_windows": spy_windows, "beats_spy_sharpe": beats_spy_sharpe,
             "beats_spy_return": beats_spy_return, "ew_windows": ew_windows,

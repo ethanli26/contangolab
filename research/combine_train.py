@@ -243,7 +243,7 @@ def main() -> int:
         "vol-matched SPY/cash": _monthly_metrics(blend_ret),
     }
     rows = [{"portfolio": k, "CAGR": _fmt(v["cagr"], pct=True), "Sharpe": _fmt(v["sharpe"]),
-             "Sortino": _fmt(v["sortino"]), "maxDD": _fmt(v["max_drawdown"], pct=True),
+             "Sortino": _fmt(v["sortino"]), "maxDD": _fmt(risk_metrics.as_loss(v["max_drawdown"]), pct=True),
              "total_return": _fmt(v["total"], pct=True)} for k, v in perf.items()]
     print(pd.DataFrame(rows).to_string(index=False))
     blend_w = min(1.0, comp_returns.std(ddof=1) / spy_ret.std(ddof=1)) if spy_ret.std(ddof=1) else 0.0

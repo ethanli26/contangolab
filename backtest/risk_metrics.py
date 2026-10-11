@@ -65,6 +65,11 @@ def max_drawdown_detail(equity: pd.Series) -> tuple[float, pd.Timestamp | None, 
     return float(-underwater.min()), peak, trough
 
 
+def as_loss(drawdown: float | None) -> float | None:
+    """Signed view of a drawdown magnitude for display: 0.25 -> -0.25 (None passes through)."""
+    return None if drawdown is None else -drawdown
+
+
 def calmar(equity: pd.Series) -> float | None:
     """Calmar ratio: CAGR / max drawdown."""
     growth = cagr(equity)

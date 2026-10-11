@@ -28,6 +28,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 import factors.altdata  # noqa: E402,F401  (registers the insider/institutional factors)
+from backtest.risk_metrics import as_loss  # noqa: E402
 from backtest.walkforward import make_windows  # noqa: E402
 from data.sharadar_provider import (  # noqa: E402
     build_insider_panels,
@@ -175,7 +176,7 @@ def print_walk_forward(name: str, wf: dict, spy_available_only: bool = True) -> 
             beat_spy += int((m["sharpe"] or -9) > (spy["sharpe"] or -9))
         rows.append({"window": f"{r['start'].year}-{r['end'].year}",
                      "CAGR": _f(m["cagr"], pct=True), "Sharpe": _f(m["sharpe"]),
-                     "maxDD": _f(m["max_drawdown"], pct=True),
+                     "maxDD": _f(as_loss(m["max_drawdown"]), pct=True),
                      "SPY_Sharpe": _f(spy["sharpe"]) if spy else "n/a",
                      "beat_SPY": "n/a" if spy is None else ("Y" if (m["sharpe"] or -9) > (spy["sharpe"] or -9) else "n")})
     n = len(rows)
@@ -186,7 +187,7 @@ def print_walk_forward(name: str, wf: dict, spy_available_only: bool = True) -> 
           f"full-history L/S Sharpe {_f(wf['full']['sharpe'])}.")
     if worst is not None:
         print(f"  WORST window: {worst['start'].year}-{worst['end'].year} Sharpe {_f(worst['m']['sharpe'])}, "
-              f"maxDD {_f(worst['m']['max_drawdown'], pct=True)}.")
+              f"maxDD {_f(as_loss(worst['m']['max_drawdown']), pct=True)}.")
     consistent = n > 0 and pos * 2 >= n and (spy_n == 0 or beat_spy * 2 >= spy_n)
     return {"n": n, "positive": pos, "beat_spy": beat_spy, "spy_n": spy_n, "consistent": consistent}
 

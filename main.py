@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pandas as pd  # noqa: E402
 
 import config  # noqa: E402
+from backtest.risk_metrics import as_loss  # noqa: E402
 
 log = logging.getLogger("main")
 
@@ -126,19 +127,19 @@ def cmd_strategy(args) -> int:
           f"vs vol-matched blend {_ratio(m_blend['sharpe'])}  -> {'BEATS' if beats_oos else 'TRAILS'} passive risk-adjusted.")
     print(f"  Walk-forward: beat SPY on Sharpe in {beat_spy}/{len(spy_rows)} non-overlapping windows "
           f"(SPY cache covers post-2011 windows).")
-    print(f"  Crash control: OOS maxDD {_pct(m_oos['max_drawdown'] and -m_oos['max_drawdown'])} "
-          f"vs SPY {_pct(m_spy['max_drawdown'] and -m_spy['max_drawdown'])}.")
+    print(f"  Crash control: OOS maxDD {_pct(as_loss(m_oos['max_drawdown']))} "
+          f"vs SPY {_pct(as_loss(m_spy['max_drawdown']))}.")
     print(f"  => {'CONSISTENT across walk-forward windows.' if consistent else 'NOT consistent across windows — caution.'}")
 
     # --- details ------------------------------------------------------------------
     print(f"\n=== OOS benchmark comparison ({oos_ret.index[0].date()} -> {oos_ret.index[-1].date()}, after costs) ===")
     bench = pd.DataFrame([
         {"series": f"{name} ({variant})", "CAGR": _pct(m_oos["cagr"]), "Sharpe": _ratio(m_oos["sharpe"]),
-         "Sortino": _ratio(m_oos["sortino"]), "maxDD": _pct(m_oos["max_drawdown"] and -m_oos["max_drawdown"])},
+         "Sortino": _ratio(m_oos["sortino"]), "maxDD": _pct(as_loss(m_oos["max_drawdown"]))},
         {"series": "SPY buy-hold", "CAGR": _pct(m_spy["cagr"]), "Sharpe": _ratio(m_spy["sharpe"]),
-         "Sortino": _ratio(m_spy["sortino"]), "maxDD": _pct(m_spy["max_drawdown"] and -m_spy["max_drawdown"])},
+         "Sortino": _ratio(m_spy["sortino"]), "maxDD": _pct(as_loss(m_spy["max_drawdown"]))},
         {"series": "vol-matched SPY/cash", "CAGR": _pct(m_blend["cagr"]), "Sharpe": _ratio(m_blend["sharpe"]),
-         "Sortino": _ratio(m_blend["sortino"]), "maxDD": _pct(m_blend["max_drawdown"] and -m_blend["max_drawdown"])},
+         "Sortino": _ratio(m_blend["sortino"]), "maxDD": _pct(as_loss(m_blend["max_drawdown"]))},
     ])
     print(bench.to_string(index=False))
     print("\n=== Walk-forward (non-overlapping OOS windows, after costs) ===")

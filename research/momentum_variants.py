@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
+from backtest.risk_metrics import as_loss  # noqa: E402
 from factors.composite import CompositeFactor  # noqa: E402
 from factors.evaluate import _rebalance_dates, evaluate_factor  # noqa: E402
 from factors.fundamentals import BookToPrice, EarningsYield, Profitability  # noqa: E402
@@ -206,7 +207,7 @@ def main() -> int:
     print("\n--- OOS TRADED, AFTER COSTS, ranked by Sharpe ---")
     print(pd.DataFrame([{"variant": r["variant"], "CAGR": _f(r["cagr"], pct=True),
                          "Sharpe": _f(r["sharpe"]), "Sortino": _f(r["sortino"]),
-                         "maxDD": _f(r["max_drawdown"], pct=True),
+                         "maxDD": _f(as_loss(r["max_drawdown"]), pct=True),
                          "total": _f(r["total"], pct=True)} for r in rows]).to_string(index=False))
 
     # --- (3) CRASH FOCUS (full history: worst 12m, 2008-2009, 2020) ---------------------
@@ -218,7 +219,7 @@ def main() -> int:
                            "worst_12mo": _f(worst_rolling_12m(series), pct=True),
                            "ret_2008_2009": _f(subperiod_return(series, "2008-01-01", "2009-12-31"), pct=True),
                            "ret_2020": _f(subperiod_return(series, "2020-01-01", "2020-12-31"), pct=True),
-                           "full_maxDD": _f(_monthly_metrics(series)["max_drawdown"], pct=True)})
+                           "full_maxDD": _f(as_loss(_monthly_metrics(series)["max_drawdown"]), pct=True)})
     print(pd.DataFrame(crash_rows).to_string(index=False))
 
     _verdict(ls_full, spy_oos, blend_oos, split, order)
