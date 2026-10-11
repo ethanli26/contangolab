@@ -41,6 +41,7 @@ class FactorData:
     volume: pd.DataFrame
     market: pd.Series | None = None
     fundamentals: dict[str, pd.DataFrame] | None = None
+    extra: dict[str, pd.DataFrame] | None = None   # asset-class-specific panels (futures: ry, farRet, uni, ...)
 
 
 class Factor(ABC):

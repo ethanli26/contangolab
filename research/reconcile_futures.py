@@ -13,8 +13,15 @@ Export the reference from DolphinDB (~/ddb, server on :8848) first:
 then:
 
     python -m research.reconcile_futures path/to/ddb_px.csv
+    python -m research.reconcile_futures --pnl path/to/dir   # dir holds ddb_pnl_<SIGNAL>.csv
 
-Result on 2026-10-10: 157,395 / 157,395 rows, all 15 columns identical (max relative
+The ``--pnl`` mode compares daily gross P&L and turnover of every signal in
+``factors.futures_signals.SIGNALS`` against DolphinDB's ``tsPortfolio`` / ``longShortG`` output
+(data cut at 2026-09-30, 3 bps/side, as in ddb batch 3). Result on 2026-10-10: all six match to
+<= 1.6e-16 gross and <= 6.7e-15 turnover; vol-targeted Sharpes TS12 0.613, TS1 0.707, DONCH20
+0.557, MA20_60 0.896, RANK63 0.486, CARRY 0.300, identical in both engines.
+
+Panel result on 2026-10-10: 157,395 / 157,395 rows, all 15 columns identical (max relative
 difference 4.4e-16), held contract identical on every row, universe mask identical.
 """
 
@@ -52,7 +59,40 @@ def reconcile(reference: pd.DataFrame, ours: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+PNL_END = "2026-09-30"
+PNL_COST_BPS = 3.0
+
+
+def reconcile_pnl(ref_dir: str) -> pd.DataFrame:
+    """Daily P&L of every futures signal portfolio vs DolphinDB's exported P&L."""
+    from pathlib import Path
+
+    from backtest.futures_portfolio import calendar, daily_stats, long_short, time_series_portfolio, vol_target
+    from factors.futures_signals import SIGNALS, with_returns
+
+    px = calendar(with_returns(load_continuous().query(f"date <= '{PNL_END}'")))
+    rows = []
+    for name, spec in SIGNALS.items():
+        values = spec.compute(px)
+        ours = (time_series_portfolio(px, values, spec.rebalance, PNL_COST_BPS) if spec.kind == "time_series"
+                else long_short(px, values, spec.sign, spec.rebalance, PNL_COST_BPS))
+        ref = pd.read_csv(Path(ref_dir) / f"ddb_pnl_{name}.csv", parse_dates=["date"]).set_index("date")
+        joined = ours.join(ref, rsuffix="_ref", how="outer")
+        rows.append({"signal": name, "days": len(ours), "days_ref": len(ref),
+                     "max_gross_diff": float((joined["gross"] - joined["gross_ref"]).abs().max()),
+                     "max_turn_diff": float((joined["turn"] - joined["turn_ref"]).abs().max()),
+                     "sharpe": daily_stats(vol_target(ours, PNL_COST_BPS))["sharpe"],
+                     "sharpe_ref": daily_stats(vol_target(ref, PNL_COST_BPS))["sharpe"]})
+    return pd.DataFrame(rows)
+
+
 def main(argv: list[str]) -> int:
+    if len(argv) == 2 and argv[0] == "--pnl":
+        table = reconcile_pnl(argv[1])
+        print(table.to_string(index=False))
+        passed = bool(((table["sharpe"] - table["sharpe_ref"]).abs() <= 0.03).all())
+        print(f"\n{'PASS' if passed else 'FAIL'}: every vol-targeted Sharpe within 0.03 of DolphinDB's.")
+        return 0 if passed else 1
     if len(argv) != 1:
         print(__doc__)
         return 2
