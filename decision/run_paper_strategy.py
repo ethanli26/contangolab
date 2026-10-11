@@ -1,9 +1,10 @@
 """Monthly paper rebalance for the long-only vol-managed momentum strategy.
 
-This is MONITORED PAPER VALIDATION of the walk-forward survivor (long-only vol-managed
-momentum: positive Sharpe in 9/9 windows, market-beating on return 5/6, ~flat through the
-GFC) — a modest, robust-but-not-Sharpe-dominant strategy. We deploy it to a PAPER account
-to accumulate live forward evidence; this is NOT a confirmed edge.
+This is MONITORED PAPER VALIDATION of long-only vol-managed momentum. On the point-in-time
+universe its walk-forward Sharpe is 0.27 against 0.21 for simply holding the equal-weight
+universe, with a -73% worst drawdown (reports/RESULTS.md). The earlier "positive in 9/9
+windows" verdict came from a look-ahead-biased universe and no longer holds. Paper trading
+it collects forward evidence; it is NOT a confirmed edge and not a candidate for real money.
 
 Every order goes through the EXISTING safety path, unchanged:
   * the DU-account guard (``assert_paper_account``) refuses any non-paper account,
@@ -172,9 +173,9 @@ def _print_header(strategy_name: str, live: bool) -> None:
     print("\n" + "=" * 84)
     print(f"MONITORED PAPER VALIDATION — {strategy_name} (LONG-ONLY vol-managed momentum)")
     print("=" * 84)
-    print("This is forward paper validation of a MODEST, robust-but-not-Sharpe-dominant strategy")
-    print("(walk-forward: positive Sharpe 9/9 windows, beat market on return 5/6, flat through the")
-    print("GFC). Collecting live evidence — NOT a confirmed edge. " + ("LIVE broker." if live else "Offline preview."))
+    print("This is forward paper validation of a THIN-EDGE strategy (walk-forward Sharpe 0.27 vs 0.21")
+    print("for the equal-weight universe, worst drawdown -73%; see reports/RESULTS.md).")
+    print("Collecting live evidence — NOT a confirmed edge. " + ("LIVE broker." if live else "Offline preview."))
 
 
 def _print_guard_status(account_id: str | None, live: bool) -> None:

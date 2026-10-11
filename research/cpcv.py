@@ -265,6 +265,7 @@ def print_cpcv_report(strategy_name: str, cpcv_results: list, dsr_result: dict, 
           f"{dsr_result['sr0_annualized']:+.2f}")
     print(f"  Return skew / kurtosis             : {dsr_result['skew']:+.2f} / {dsr_result['kurtosis']:.2f} (normal = 0 / 3)")
     print(f"  Deflated Sharpe Ratio (probability true Sharpe > SR0): {dsr_result['dsr']*100:.1f}%")
+    print("  (SR0 is a luck bar near zero, not the market: compare the benchmark table above for that.)")
 
     if pbo_result is not None:
         print("\n--- Probability of Backtest Overfitting (Bailey et al. 2014, CSCV) ---")
