@@ -6,15 +6,31 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Ruff (config in pyproject.toml)
+        run: |
+          pip install ruff
+          ruff check .
+
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: pip
 
       - name: Install dependencies
@@ -27,7 +43,4 @@ jobs:
         # The whole suite is offline/deterministic — no network, no broker, no live
         # Sharadar calls (SharadarUnavailable/cache-miss paths are what's tested).
         run: |
-          pytest \
-            --cov=data --cov=factors --cov=research --cov=strategies \
-            --cov=backtest --cov=decision --cov=execution --cov=storage \
-            --cov-report=term-missing
+          pytest --cov --cov-report=term-missing

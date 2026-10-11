@@ -33,11 +33,11 @@ from backtest.walkforward import make_windows  # noqa: E402
 from data.sharadar_provider import (  # noqa: E402
     build_insider_panels,
     build_institutional_panels,
-    load_institutional_holdings,
     load_insider_transactions,
+    load_institutional_holdings,
 )
 from factors.altdata import ALTDATA_EXPECTED_SIGN, ALTDATA_FACTORS  # noqa: E402
-from factors.base import all_factors, get  # noqa: E402
+from factors.base import get  # noqa: E402
 from factors.evaluate import _rebalance_dates, evaluate_factor  # noqa: E402
 from factors.library import Momentum12_1  # noqa: E402
 from factors.run_factor_eval import build_sharadar_factor_data  # noqa: E402

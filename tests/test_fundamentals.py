@@ -24,7 +24,6 @@ from data.sharadar_provider import (
 )
 from factors.base import FactorData, all_factors
 
-
 # ---- provider stub / cache-only guards ----------------------------------------
 
 def test_provider_stub_mode_raises_on_real_calls(monkeypatch, tmp_path):

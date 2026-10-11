@@ -1,0 +1,25 @@
+[project]
+name = "pit-backtester"
+version = "1.0.0"
+description = "Point-in-time-correct backtesting and validation for equity factor strategies."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Ethan Li" }]
+
+[tool.coverage.run]
+source = ["data", "factors", "research", "strategies", "backtest", "decision", "execution", "storage"]
+
+[tool.ruff]
+line-length = 130
+target-version = "py311"
+extend-exclude = [".venv", "venv"]
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, warnings, import order, bugbear, pyupgrade
+select = ["E", "F", "W", "I", "B", "UP"]
+# zip() over consecutive rebalance dates is length-mismatched on purpose (dates[:-1], dates[1:])
+ignore = ["B905"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["backtest", "config", "data", "decision", "execution", "factors", "research",
+                     "storage", "strategies"]

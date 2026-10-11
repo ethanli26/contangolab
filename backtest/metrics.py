@@ -16,7 +16,6 @@ per-regime totals do not sum to the overall total).
 
 import logging
 
-import numpy as np
 import pandas as pd
 
 log = logging.getLogger(__name__)

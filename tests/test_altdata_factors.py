@@ -18,7 +18,6 @@ from data.sharadar_provider import (
 from factors.altdata import ALTDATA_EXPECTED_SIGN, ALTDATA_FACTORS
 from factors.base import all_factors
 
-
 MASTER = pd.bdate_range("2021-01-01", periods=200)
 
 

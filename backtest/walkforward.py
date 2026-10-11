@@ -23,8 +23,8 @@ import pandas as pd
 import config
 from backtest.risk_metrics import as_loss
 from backtest.universe import equal_weight_index
-from research.combine_train import SPY_CACHE, _monthly_metrics, spy_monthly_returns, vol_matched_blend
 from factors.evaluate import _rebalance_dates
+from research.combine_train import SPY_CACHE, _monthly_metrics, spy_monthly_returns
 from strategies.vol_managed_momentum import VolManagedMomentum
 
 log = logging.getLogger(__name__)

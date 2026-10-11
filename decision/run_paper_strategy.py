@@ -18,7 +18,7 @@ Run monthly (manually, or via a scheduler later).
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -141,7 +141,7 @@ def run_paper_cycle(strategy_name: str, *, use_broker: bool = True,
     prices = data.close.loc[asof]
     orders = diff_to_orders(book, positions, prices)
     spy_level = latest_spy_level()
-    run_ts = datetime.now(timezone.utc).isoformat()
+    run_ts = datetime.now(UTC).isoformat()
 
     _print_header(strategy_name, live)
     _print_guard_status(account_id, live)
@@ -180,7 +180,8 @@ def _print_header(strategy_name: str, live: bool) -> None:
 def _print_guard_status(account_id: str | None, live: bool) -> None:
     print("\n--- Safety-guard status (unchanged existing guards) ---")
     print(f"  DU-account guard : {('PASSED ' + account_id) if account_id else 'deferred (no live connection)'}")
-    print(f"  DRY_RUN          : {config.DRY_RUN}  ({'print-only, nothing placed' if config.DRY_RUN else 'ARMED — gate will prompt'})")
+    armed = "print-only, nothing placed" if config.DRY_RUN else "ARMED — gate will prompt"
+    print(f"  DRY_RUN          : {config.DRY_RUN}  ({armed})")
     print(f"  Autonomy mode    : {config.AUTONOMY_MODE}  "
           f"(safest first; step up later: DRY_RUN=False + approve -> semi_auto/full_auto when proven)")
 

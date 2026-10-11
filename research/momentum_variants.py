@@ -128,7 +128,6 @@ def build_variant_returns(data, eligible) -> tuple[dict[str, pd.Series], pd.Time
 
     # --- choose the stronger value factor on FULL history (correctly-signed mean IC) ---
     mom_panel = Momentum12_1().compute(data)
-    prof_panel = Profitability().compute(data)
     btp = evaluate_factor(_Panel("book_to_price", "fundamental", BookToPrice().compute(data)),
                           data, eligible=eligible)
     ey = evaluate_factor(_Panel("earnings_yield", "fundamental", EarningsYield().compute(data)),

@@ -95,5 +95,5 @@ def test_make_windows_are_non_overlapping():
     idx = pd.date_range("1998-01-01", "2026-06-01", freq="ME")
     windows = make_windows(idx, window_years=3)
     assert len(windows) >= 8
-    for (s1, e1), (s2, e2) in zip(windows, windows[1:]):
+    for (_s1, e1), (s2, _e2) in zip(windows, windows[1:]):
         assert e1 <= s2 + pd.Timedelta(days=1)   # consecutive, non-overlapping

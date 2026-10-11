@@ -19,7 +19,6 @@ from research.cpcv import (
     probability_of_backtest_overfitting,
 )
 
-
 # --- make_groups / cpcv_splits: pure combinatorics --------------------------------------
 
 def test_make_groups_partitions_every_position_exactly_once():
@@ -37,7 +36,6 @@ def test_cpcv_splits_count_matches_binomial_coefficient(n_dates, n_groups, n_tes
 
 def test_cpcv_splits_train_never_touches_a_test_or_purged_or_embargoed_position():
     n_dates, n_groups, n_test_groups, embargo = 120, 6, 2, 2
-    groups = make_groups(n_dates, n_groups)
     for split in cpcv_splits(n_dates, n_groups, n_test_groups, embargo_periods=embargo):
         train_set = set(split.train_positions.tolist())
         for block in split.test_blocks:
