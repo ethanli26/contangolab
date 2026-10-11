@@ -7,8 +7,9 @@ the equal-weight/vol-target rules are fixed in advance. We then count how many w
 beat passive — the distribution matters more than any one window.
 
 PASSIVE BENCHMARK: SPY (the free cache starts 2011, so pre-2011 windows show SPY "n/a");
-for a full-history passive we also report the survivorship-free equal-weighted universe
-index. The strategy is evaluated after costs throughout.
+for a full-history passive we also report the equal-weight return of the same investable
+universe the strategy picks from (``universe_equal_weight_returns``). The strategy is
+evaluated after costs throughout.
 
 Offline from the Sharadar cache. Read-only research, no orders.
 
@@ -22,8 +23,7 @@ import pandas as pd
 
 import config
 from backtest.risk_metrics import as_loss
-from backtest.universe import equal_weight_index
-from factors.evaluate import _rebalance_dates
+from factors.evaluate import MIN_NAMES_PER_DATE, _rebalance_dates
 from research.combine_train import SPY_CACHE, _monthly_metrics, spy_monthly_returns
 from strategies.vol_managed_momentum import VolManagedMomentum
 
@@ -48,6 +48,27 @@ def make_windows(rebal: pd.DatetimeIndex, window_years: int = WINDOW_YEARS) -> l
     return windows
 
 
+def universe_equal_weight_returns(data, eligible: pd.DataFrame) -> pd.Series:
+    """Monthly equal-weight return of every eligible name — the pool the strategy picks from.
+
+    Same rebalance dates, same eligibility, no costs: the "just buy the whole universe"
+    benchmark. Averaging every LOADED name instead would mix in names that were outside
+    the universe that month (with the point-in-time universe that is thousands of small,
+    illiquid stocks). LEAKAGE GUARD: membership is read at ``current``; the return is the
+    realized ``current -> nxt`` move.
+    """
+    close = data.close
+    rebal = _rebalance_dates(close.index, "M")
+    out = {}
+    for current, nxt in zip(rebal[:-1], rebal[1:]):
+        forward = close.loc[nxt] / close.loc[current] - 1.0
+        mask = eligible.loc[current].reindex(forward.index).fillna(False).to_numpy(dtype=bool)
+        picked = forward[mask].dropna()
+        if len(picked) >= MIN_NAMES_PER_DATE:
+            out[nxt] = float(picked.mean())
+    return pd.Series(out, name="universe_ew").sort_index()
+
+
 def _passive(returns_index: pd.DatetimeIndex, pairs: list[tuple], spy_close: pd.Series,
              ew_returns: pd.Series) -> tuple[pd.Series, pd.Series]:
     """SPY and equal-weight-market monthly returns aligned to a window's return index."""
@@ -64,11 +85,7 @@ def run_walkforward(strategy: VolManagedMomentum, data, eligible: pd.DataFrame) 
 
     spy_close = pd.read_parquet(SPY_CACHE)["Close"]
     pairs_all = list(zip(rebal[:-1], rebal[1:]))
-    # Equal-weight survivorship-free market return per rebalance (full-history passive).
-    ew_index = equal_weight_index({s: pd.DataFrame({"Close": close[s]}) for s in close.columns})
-    ew_returns = pd.Series(
-        [ew_index.get(nxt, np.nan) / ew_index.get(cur, np.nan) - 1.0 for cur, nxt in pairs_all],
-        index=pd.DatetimeIndex([nxt for _, nxt in pairs_all]))
+    ew_returns = universe_equal_weight_returns(data, eligible)   # full-history passive
 
     rows = []
     for start, end in windows:
@@ -110,7 +127,7 @@ def print_walkforward(result: dict) -> dict:
             "Sortino": _f(m["sortino"]), "maxDD": _f(as_loss(m["max_drawdown"]), pct=True),
             "SPY_Sharpe": _f(spy["sharpe"] if spy else None),
             "beat_SPY": ("n/a" if spy is None else ("Y" if (m["sharpe"] or -9) > (spy["sharpe"] or -9) else "n")),
-            "beat_EWmkt": ("n/a" if ew is None else ("Y" if (m["sharpe"] or -9) > (ew["sharpe"] or -9) else "n")),
+            "beat_EWuniv": ("n/a" if ew is None else ("Y" if (m["sharpe"] or -9) > (ew["sharpe"] or -9) else "n")),
         })
     print(pd.DataFrame(table).to_string(index=False))
 
@@ -121,7 +138,7 @@ def print_walkforward(result: dict) -> dict:
           f"{sum(s > 0 for s in sharpes)}/{len(sharpes)} positive.")
     print(f"Beat SPY (where SPY exists, {spy_windows} windows): "
           f"{beats_spy_sharpe}/{spy_windows} on Sharpe, {beats_spy_return}/{spy_windows} on return.")
-    print(f"Beat equal-weight survivorship-free market ({ew_windows} windows): "
+    print(f"Beat the equal-weight investable universe ({ew_windows} windows): "
           f"{beats_ew_sharpe}/{ew_windows} on Sharpe.")
     print(f"WORST window: {worst['start'].year}-{worst['end'].year} -> "
           f"Sharpe {_f(worst['metrics']['sharpe'])}, maxDD {_f(as_loss(worst['metrics']['max_drawdown']), pct=True)}, "
