@@ -5,6 +5,7 @@ description = "Point-in-time-correct backtesting and validation for equity facto
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Ethan Li" }]
+license = { text = "MIT" }
 
 [tool.coverage.run]
 source = ["data", "factors", "research", "strategies", "backtest", "decision", "execution", "storage"]
