@@ -10,6 +10,7 @@ pyarrow                 # parquet caches (backtest/cache, data/cache/sharadar)
 pandas
 numpy
 scipy                   # research/cpcv.py: skew, kurtosis, the normal CDF
+matplotlib              # research/report.py: the charts in reports/
 
 # Broker / execution
 ib_async

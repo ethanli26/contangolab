@@ -12,6 +12,8 @@ is changed here:
               walk-forward validation (e.g. vol_managed_momentum).
   paper     — one monthly paper rebalance for a portfolio strategy, through the
               existing DU-account guard + DRY_RUN + autonomy gate.
+  report    — regenerate reports/ (RESULTS.md, results.json, charts): the source of
+              every number the README quotes.
 
 config.py is the single config surface (risk params, autonomy mode, DRY_RUN, vol-
 target windows). At startup a self-check asserts the paper-safety guards (DU-account
@@ -22,6 +24,7 @@ alpha.
     python main.py altdata
     python main.py strategy vol_managed_momentum
     python main.py paper vol_managed_momentum --no-broker
+    python main.py report
 """
 
 import argparse
@@ -86,8 +89,7 @@ def cmd_strategy(args) -> int:
     from backtest import walkforward
     from factors.evaluate import _rebalance_dates
     from factors.run_factor_eval import build_sharadar_factor_data
-    from research.combine_train import (OOS_FRACTION, SPY_CACHE, _monthly_metrics,
-                                        spy_monthly_returns, vol_matched_blend)
+    from research.combine_train import OOS_FRACTION, SPY_CACHE, _monthly_metrics, spy_monthly_returns, vol_matched_blend
     from strategies.registry import get_portfolio, portfolio_strategies
 
     name = args.name
@@ -147,20 +149,37 @@ def cmd_strategy(args) -> int:
     walkforward.capacity_report(strategy, data, eligible)
 
     # --- CPCV / Deflated Sharpe / PBO: is this real, or did the search just get lucky? ---
-    from research.cpcv import deflated_sharpe_ratio, print_cpcv_report, probability_of_backtest_overfitting, run_cpcv
+    from research.cpcv import (
+        annualized_sharpe,
+        deflated_sharpe_ratio,
+        print_cpcv_report,
+        probability_of_backtest_overfitting,
+        run_cpcv,
+    )
     from research.momentum_variants import build_variant_returns
+    from research.report import walk_forward_returns
 
     cpcv_results = run_cpcv(strategy, data, eligible, rebal)
-    full_returns = strategy.portfolio_returns(data, eligible)
-    dsr_result = deflated_sharpe_ratio(full_returns, [r["sharpe"] for r in cpcv_results])
+    wf_returns, _ = walk_forward_returns(strategy, data, eligible)
+    variant_returns, _, _, _ = build_variant_returns(data, eligible)
+    # The DSR's "trials" are the configurations that were actually searched: the five
+    # pre-registered momentum variants plus the long-only version chosen for paper.
+    searched = {**variant_returns,
+                "long_only_vol_managed": type(strategy)(long_only=True).portfolio_returns(data, eligible)}
+    dsr_result = deflated_sharpe_ratio(wf_returns, [annualized_sharpe(s) for s in searched.values()])
     pbo_result = None
     try:
-        variant_returns, _, _, _ = build_variant_returns(data, eligible)
         pbo_result = probability_of_backtest_overfitting(variant_returns)
     except ValueError as error:
         log.warning("Skipping PBO: %s", error)
     print_cpcv_report(name, cpcv_results, dsr_result, pbo_result)
     return 0
+
+
+def cmd_report(args) -> int:
+    """Regenerate reports/ (RESULTS.md, results.json, charts) from the local archive."""
+    from research.report import main as report_main
+    return report_main()
 
 
 def cmd_paper(args) -> int:
@@ -170,12 +189,13 @@ def cmd_paper(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """CLI with the four subcommands."""
+    """CLI with the five subcommands."""
     parser = argparse.ArgumentParser(prog="main.py", description="pit-backtester — integrated entry point.")
     subparsers = parser.add_subparsers(dest="command", required=True)
     for name, func, help_text in [
         ("factors", cmd_factors, "factor IC evaluation scorecard (price + point-in-time fundamentals)"),
         ("altdata", cmd_altdata, "insider/institutional factor gauntlet (SF2/SF3 vs momentum)"),
+        ("report", cmd_report, "regenerate reports/: results tables + charts from the local archive"),
     ]:
         subparsers.add_parser(name, help=help_text).set_defaults(func=func)
     # Portfolio-strategy backtest + walk-forward (e.g. vol_managed_momentum).
