@@ -153,10 +153,13 @@ def capacity_report(strategy: VolManagedMomentum, data, eligible: pd.DataFrame) 
     """Annual turnover + an honest, order-of-magnitude capacity ceiling."""
     turnover = strategy.annual_turnover(data, eligible)
     close, volume = data.close, data.volume
-    # Per-name median daily dollar volume, then the median across the decile-eligible names.
-    adv = (close * volume).median()
-    median_adv = float(adv.median())
-    n_names = int(eligible.iloc[-1].sum()) if len(eligible) else close.shape[1]
+    # Median 20-day dollar volume across the names eligible on the LAST rebalance date — the
+    # names the book could hold today, not every ticker ever loaded.
+    last = _rebalance_dates(close.index, "M")[-1]
+    adv = (close * volume).rolling(config.LIQUIDITY_LOOKBACK).mean().loc[last]
+    in_universe = eligible.loc[last].reindex(adv.index).fillna(False).to_numpy(dtype=bool)
+    median_adv = float(adv[in_universe].median())
+    n_names = int(in_universe.sum())
     decile_names = max(n_names // config.VMM_DECILES, 1)
     # Capacity ≈ names per decile x (participation x median ADV); thin names bind first.
     capacity = decile_names * config.MAX_ADV_PARTICIPATION * median_adv
