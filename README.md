@@ -1,7 +1,6 @@
 # pit-backtester
 
 ![CI](https://github.com/ethanli26/pit-backtester/actions/workflows/ci.yml/badge.svg)
-![coverage](https://img.shields.io/badge/coverage-pytest--cov-blue)
 
 ## What this is
 
@@ -14,6 +13,10 @@ This project treats that as an engineering problem, not just a research problem.
 - The price and fundamental data include companies that went bankrupt or got delisted,
   not just the ones still around today. Testing only on survivors makes every result look
   better than it really was.
+- Which stocks count as "the universe" is decided month by month, using only trading
+  volume up to that date. Picking the universe with hindsight (for example "the 1,500 most
+  traded stocks over 2000-2026") quietly includes companies because of what they later
+  became. Measured below, that one shortcut more than doubled this strategy's backtested Sharpe.
 - Every factor (a formula meant to predict returns) is automatically tested to prove it
   never uses future data. This is not a comment in the code that says "trust me." It is a
   test that builds fake data, deletes the future half of it, and checks that the answer
@@ -25,15 +28,53 @@ This project treats that as an engineering problem, not just a research problem.
 - After that, two statistical checks called the Deflated Sharpe Ratio and the Probability
   of Backtest Overfitting ask a blunt question: given how many things were tried, how
   likely is it that this result is just luck?
-- The strategy that survives all of this is intentionally simple: buy stocks with strong
-  recent momentum, skip the most recent month to avoid short term reversals, and shrink the
-  position size when volatility spikes. The goal of this project was never to find a secret
-  formula. It was to build a system that can tell a small, real edge apart from noise.
+- The strategy under test is intentionally simple: buy stocks with strong recent momentum,
+  skip the most recent month to avoid short term reversals, and shrink the position size
+  when volatility spikes. The goal of this project was never to find a secret formula. It
+  was to build a system that can tell a small, real edge apart from noise, and the honest
+  answer it gives for this strategy is: barely, and not enough to trade.
 
 The last step connects to Interactive Brokers in paper trading mode (fake money, real
 market data), with safety checks that make it very hard to place a live order by accident.
 
 For the full walkthrough of how each piece works, read `ARCHITECTURE.md`.
+
+## Results
+
+All numbers come from `python main.py report`, which writes [`reports/RESULTS.md`](reports/RESULTS.md)
+and the charts below. Walk-forward out of sample, January 2000 to June 2026, after 15 bps per
+side of trading costs, on a point-in-time universe that includes delisted stocks.
+
+| | CAGR | Sharpe | Max drawdown |
+|---|---|---|---|
+| Vol-managed momentum, long-only | +7.6% | 0.27 | -73% |
+| Vol-managed momentum, long/short | +10.0% | 0.35 | -65% |
+| Equal-weight universe (no costs) | +6.5% | 0.21 | -57% |
+
+![Growth of $1](reports/equity_curve.png)
+
+**What it means.** The strategy beats simply holding its own universe, but only slightly,
+with much deeper drawdowns, in 5 of 9 three-year windows, and the gap disappears
+at small-cap trading costs (40 bps per side: Sharpe 0.20 vs 0.21). The overfitting checks say the result
+is not a product of the search (PBO 7%), but a real-and-tiny edge is still not a tradeable
+one. It stays in paper trading.
+
+**The biggest finding was a bug in my own pipeline.** The first version picked the universe
+by each stock's median trading volume over its *whole life*, so a company that was small in
+2000 and huge by 2020 was "in the universe" in 2000. Fixing that one line of reasoning:
+
+| Universe rule | Long-only Sharpe | Long-only CAGR |
+|---|---|---|
+| Whole-life liquidity (look-ahead) | 0.72 | +22.5% |
+| Point-in-time, same number of eligible stocks | 0.31 | +9.2% |
+| Point-in-time, default size | 0.27 | +7.6% |
+
+![Universe look-ahead](reports/universe_bias.png)
+
+The size-matched row matters: the two rules give universes of different breadth, so the
+middle row holds breadth fixed to show the drop comes from the look-ahead itself. The
+fix is in `backtest/universe.py` (`point_in_time_membership`), with a property test that
+deletes all future data and checks that membership does not change.
 
 ## How it fits together
 
@@ -105,14 +146,18 @@ flowchart TD
 
 ## Running
 
-`main.py` is the single entry point, with four subcommands:
+`main.py` is the single entry point, with five subcommands:
 
 ```
 python main.py factors                          # test each factor for predictive power
 python main.py altdata                           # test insider/institutional signals vs momentum
 python main.py strategy vol_managed_momentum     # backtest, walk-forward, and overfitting checks
+python main.py report                            # regenerate reports/ (tables + charts), ~10 min
 python main.py paper vol_managed_momentum        # one monthly paper rebalance (needs TWS/IB Gateway)
 ```
+
+`VMM_LONG_ONLY=true` switches `strategy` to the long-only variant (the one paper traded), and
+`UNIVERSE_MODE=static` reruns anything on the old look-ahead universe for comparison.
 
 Add `--no-broker` to `paper` for an offline preview that computes the target portfolio and
 orders without connecting to anything.
@@ -134,7 +179,13 @@ What's covered:
   factor never uses future data. It works by generating random fake data, deleting
   everything after a cutoff date, and confirming each factor's value at that date does not
   change. This runs for many random seeds and symbol counts, not just one example.
+- **backtest/universe.py** - the point-in-time universe: a stock that becomes liquid later is
+  not eligible earlier, delisted stocks drop out on their last day, and a `hypothesis`
+  property test proves that deleting every bar after a date never changes membership before
+  it. (The test was checked by planting a look-ahead and watching it fail.)
 - **strategies/** - the momentum strategy and the alternate versions it was tested against.
+- **research/report.py** - the stitched walk-forward path, the universe benchmark, and an
+  end-to-end render of the report on synthetic data.
 - **research/cpcv.py** - the math behind the overfitting checks: the split counts come out
   right, and the statistics give the expected answer on made-up data where the right answer
   is already known.
@@ -143,8 +194,8 @@ What's covered:
   account and `DRY_RUN` is off. These are tested against a fake broker, so nothing here
   ever opens a real connection.
 
-CI (`.github/workflows/ci.yml`) runs the full offline suite with coverage on every push and
-pull request, and fails the build on any test failure.
+CI (`.github/workflows/ci.yml`) lints with `ruff` and runs the full offline suite with
+coverage on Python 3.11, 3.12 and 3.13 on every push and pull request.
 
 ## Project structure
 
@@ -153,12 +204,13 @@ pit-backtester/
   config.py          # settings: autonomy_mode, risk params, ports, keys from env
   data/              # point-in-time data (Sharadar) + the provider interface
   factors/           # factor library, predictive-power tests, evaluation scripts
-  research/          # factor-combination, crash-fix, and overfitting checks
+  research/          # factor-combination, crash-fix, overfitting checks, results report
   strategies/        # the strategy that survived validation (vol-managed momentum)
   backtest/          # universes, walk-forward validation, benchmarks, risk metrics
   decision/          # the safety gate + the paper-rebalance runner
   execution/         # Interactive Brokers connection wrapper
   storage/           # sqlite layer (paper rebalance / target / order history)
+  reports/           # generated by `main.py report`: RESULTS.md, results.json, charts
   main.py
 ```
 
@@ -172,6 +224,8 @@ See `ARCHITECTURE.md`'s "Map of the repository" for what each file does.
 
 ## Status
 
-Every command listed under "Running" above works end to end, offline, against the local
-Sharadar cache. See `ARCHITECTURE.md`'s "Honest limitations" for what this system genuinely
-cannot do yet.
+Complete as a research and validation platform. Every command under "Running" works end
+to end, offline, against the local Sharadar cache, and every result quoted in this README
+is regenerated by `main.py report`. The strategy itself is not good enough to trade with
+real money, which is the finding, not a gap. See `ARCHITECTURE.md`'s "Honest limitations"
+for what the system cannot do.

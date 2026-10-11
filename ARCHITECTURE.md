@@ -79,15 +79,20 @@ history it never got to see, and only then does it touch a broker — through tw
 safety checks that get re-verified before every single order.
 
 **The honest headline:** the one strategy that survived this gauntlet (12-1 momentum,
-volatility-managed) is, in the code's own words, "a modest, robust-but-not-Sharpe-dominant
-strategy" — not a discovery of hidden alpha. Most of what went into the factor library
-didn't survive contact with point-in-time data (see Chapter 4), and even the survivor
-doesn't get a free pass at the end: a real CPCV/Deflated-Sharpe run put its full-history
-Sharpe at only 39% likely to beat the trial-adjusted benchmark (Chapter 10) — genuinely
-inconclusive, stated plainly, not rounded up. What IS well-supported is that picking this
-variant over the four alternatives wasn't overfitting (PBO 8.6%, also Chapter 10). That's
-the system working correctly: the point of the machinery is to find out what doesn't work
-for free, and to be honest about the modesty — and the genuine uncertainty — of what does.
+volatility-managed) has a real but thin edge. Walk-forward from 2000 to 2026 on a
+point-in-time universe, the long-only version earns a Sharpe of 0.27 after costs against
+0.21 for simply holding the equal-weight universe it picks from, with a -73% worst
+drawdown, and the edge is gone at small-cap trading costs. Picking this variant over the
+alternatives wasn't overfitting (PBO 7%, Chapter 10), but "not overfit" and "worth trading"
+are different claims. Every number here is written by `python main.py report` into
+`reports/RESULTS.md`.
+
+The most important result in the project is not about momentum at all. An earlier version
+chose its universe using each stock's *whole-life* trading volume, which is a look-ahead
+(Chapter 4, Killer 4). With that bug the same strategy showed a 0.72 Sharpe and "positive in
+9 of 9 windows." Fixing it cut the Sharpe by more than half. That's the system working
+correctly: the point of the machinery is to find out what doesn't work for free, including
+mistakes in the machinery itself.
 
 ---
 ## Chapter 1: Why this exists
@@ -475,6 +480,53 @@ didn't flip any. Diagnosis, stated in the code's own output:
 
 The only real fix is data that includes the dead companies. Which is what you bought.
 
+### Killer 4: Picking the universe with hindsight — the one I built myself
+
+Buying survivorship-free data fixes *which companies exist* in the data. It does not fix
+*which of them you decide to trade.* Sharadar covers ~19,000 US common stocks; a backtest
+can't load all of them, so the first version kept "the 1,500 most liquid," ranked by each
+stock's **median daily dollar volume over its entire life.**
+
+That ranking reads the future. A company that was a thinly traded small-cap in 2000 and a
+mega-cap by 2020 has a huge whole-life median, so it made the list, and so it was in the
+2000 universe *because of what it later became.* For a momentum strategy, whose whole job
+is to buy stocks that are about to keep rising, that is close to cheating.
+
+```
+   Whole-life ranking (old)                Point-in-time ranking (now)
+   ─────────────────────────               ───────────────────────────
+   "Top 1,500 by median volume,            "On each month-end t, the top 1,500
+    1998-2026" → one fixed list             by trailing 3-month volume, using
+                                             only bars up to t"
+   NVDA in 2000: in (it became huge)       NVDA in 2000: in only if it was liquid
+   A 2003 bankruptcy: often out              in 2000
+     (illiquid at the end of its life)     A 2003 bankruptcy: in until the month
+                                             it stopped trading
+```
+
+**File:** `backtest/universe.py` — `point_in_time_membership`. At each month-end trading day
+a ticker is a member only if it traded that day, has a year of history so far, and ranks
+in the top N on trailing dollar volume. The daily eligibility mask is that membership
+ANDed with the existing price and 20-day ADV floors.
+
+Like the factors, this is proved rather than promised: `tests/test_pit_universe.py`
+generates random listings, delistings and volumes, computes membership on the full data and
+again with everything after a cutoff deleted, and requires the two to match. The test was
+itself checked by planting a centered (future-peeking) rolling window, which it caught.
+
+**What it cost the strategy** (`reports/RESULTS.md`, long-only, walk-forward, after costs):
+
+| Universe rule | Median eligible names | Sharpe | CAGR |
+|---|---|---|---|
+| Whole-life ranking, top 1,500 (look-ahead) | 733 | 0.72 | +22.5% |
+| Point-in-time, top 750 (size-matched) | 728 | 0.31 | +9.2% |
+| Point-in-time, top 1,500 (default) | 1,432 | 0.27 | +7.6% |
+
+The middle row is the control. The two rules give universes of different breadth (many
+names on the whole-life list hadn't listed or grown liquid yet in early years, so fewer were
+eligible on a given date), and breadth alone could move a decile strategy. Holding breadth
+fixed, the Sharpe still drops from 0.72 to 0.31. The look-ahead was most of the result.
+
 ---
 
 ## Chapter 5: Sharadar — buying honest data
@@ -738,11 +790,11 @@ tests each one out-of-sample:
 ```
 1998 ─────────────────────────────────────────────────────────────── 2026
      ├────────┤ TRAIN                                                       (window 1 setup)
-              ├────────┤ TEST  2001-2004
-                       ├────────┤ TEST  2004-2007
-                                ├────────┤ TEST  2007-2010   ← includes the GFC
-                                         ├────────┤ TEST  2010-2013
-                                                  ├────────┤ TEST  2013-2016
+              ├────────┤ TEST  2000-2002
+                       ├────────┤ TEST  2003-2005
+                                ├────────┤ TEST  2006-2008   ← includes the GFC
+                                         ├────────┤ TEST  2009-2011
+                                                  ├────────┤ TEST  2012-2014
                                                            ├────────┤ ... etc
 
 Each window's vol target comes ONLY from data strictly BEFORE that window.
@@ -765,22 +817,27 @@ everything in a single lucky window.
 
 ### What it reports
 
-*📋 ILLUSTRATIVE FORMAT — run `python main.py strategy vol_managed_momentum` for the real
-window table. The summary counts quoted at the end of this chapter (9/9 positive, 5/6 on
-return) come from the code's own header and are real.*
+Real output, `VMM_LONG_ONLY=true python main.py strategy vol_managed_momentum`, point-in-time
+universe. `beat_EWuniv` compares against the equal-weight return of the same investable
+universe; SPY's free price cache only starts in 2011.
 
 ```
 === Walk-forward (non-overlapping OOS windows, after costs) ===
-   window  months   CAGR  Sharpe  Sortino  maxDD  SPY_Sharpe  beat_SPY  beat_EWmkt
-2001-2004      36  +8.2%   +0.61    +0.88 -14.2%         n/a       n/a           Y
-2004-2007      36  +6.4%   +0.52    +0.71 -11.0%         n/a       n/a           Y
-2007-2010      36  +1.1%   +0.09    +0.13 -18.4%         n/a       n/a           Y
-2010-2013      36  +9.8%   +0.74    +1.02 -12.7%       +0.68         Y           Y
-...
+   window  months   CAGR Sharpe Sortino  maxDD SPY_Sharpe beat_SPY beat_EWuniv
+2000-2003      36 -25.3%  -0.48   -0.69 -72.3%        n/a      n/a           Y
+2003-2006      36 +31.1%  +0.68   +1.08 -46.1%        n/a      n/a           n
+2006-2009      36 -15.3%  -0.31   -0.41 -54.2%        n/a      n/a           Y
+2009-2012      36  +7.0%  +0.15   +0.21 -33.0%      -0.44        Y           n
+2012-2015      36 +31.2%  +1.12   +2.09 -23.7%      +1.64        n           n
+2015-2018      36  +9.1%  +0.34   +0.45 -34.4%      +0.72        n           n
+2018-2021      36  +7.4%  +0.40   +0.58 -41.1%      +0.58        n           Y
+2021-2024      36  -1.7%  +0.06   +0.09 -26.8%      +0.40        n           Y
+2024-2026      30 +35.1%  +1.07   +2.20 -20.7%      +1.32        n           Y
 
-Windows: 9 | Sharpe distribution: min +0.09, median +0.52, max +0.81; 9/9 positive.
-Beat SPY (where SPY exists, 6 windows): 4/6 on Sharpe, 5/6 on return.
-WORST window: 2007-2010 -> Sharpe +0.09, maxDD -18.4%, CAGR +1.1%.
+Windows: 9 | Sharpe distribution: min -0.48, median +0.34, max +1.12; 7/9 positive.
+Beat SPY (where SPY exists, 6 windows): 1/6 on Sharpe, 3/6 on return.
+Beat the equal-weight investable universe (9 windows): 5/9 on Sharpe.
+WORST window: 2000-2003 -> Sharpe -0.48, maxDD -72.3%, CAGR -25.3%.
 ```
 
 **The WORST window line is the most valuable output in this entire document.** Average
@@ -789,38 +846,36 @@ before you lose faith and turn the system off.
 
 ### The capacity check
 
-*📋 ILLUSTRATIVE FORMAT — the turnover, ADV, and capacity figures below are invented to
-show the shape of the report. The 5/15/40 bps tiers and the 1% ADV cap are real config
-values.*
+Real output from the same run. The ADV is the median 20-day dollar volume of the names
+eligible on the last rebalance date (June 2026).
 
 ```
 --- Capacity / turnover (honest order-of-magnitude) ---
-  Annual one-way turnover (long leg): ~340% of the book per year.
-  Median name ADV in universe: $18,400,000/day; ~90 names per decile.
-  At 1% ADV participation, rough capacity ceiling ~$16,560,000 per side.
-  Costs scale UP on smaller names (5 / 15 / 40 bps by tier); a real book skewed to
-  thin names pays the small-tier rate, so the 15 bps/side here is optimistic at scale.
+  Annual one-way turnover (long leg): ~367% of the book per year (monthly momentum decile turnover is high).
+  Median name ADV in universe: $151,460,360/day; ~147 names per decile.
+  At 1% ADV participation, rough capacity ceiling ~$222,646,729 per side before costs balloon.
 ```
+
+The cost table in `reports/RESULTS.md` is the sharper version of this warning: at 40 bps
+per side the long-only Sharpe falls from 0.27 to 0.20, below the 0.21 of just holding the
+universe.
 
 Monthly momentum deciles turn over heavily — you replace much of the book several times a
 year, and every turn pays costs. This is why a strategy can have a genuine edge and still
 not be worth running. The code computes and prints your actual figure, unprompted, along
 with the warning that its 15 bps/side assumption is "optimistic at scale."
 
-### The verdict recorded in the code
+### The verdict
 
-From the header of `decision/run_paper_strategy.py`:
+An earlier version of this chapter quoted the code's header: "positive Sharpe 9/9 windows,
+beat market on return 5/6." Those numbers were real, but they were measured on the
+whole-life universe from Chapter 4's Killer 4. On the point-in-time universe the long-only
+strategy is positive in 7 of 9 windows, beats the equal-weight universe in 5 of 9, and
+loses 72% peak to trough in 2000-2003. The header now says so.
 
-> Walk-forward: **positive Sharpe 9/9 windows, beat market on return 5/6, ~flat through the
-> GFC** — a modest, robust-but-not-Sharpe-dominant strategy. Collecting live evidence —
-> **NOT a confirmed edge.**
-
-That framing is correct and worth preserving. Robust across windows, survived 2008,
-beats the market on return most of the time — but *not* dominant on risk-adjusted return.
-Worth paper-trading, not worth betting the account on.
-
-*(Note: I read these figures from the code's own header; I did not re-run the walk-forward
-in this session. Running `python main.py strategy vol_managed_momentum` reproduces them.)*
+The honest framing: a thin edge over holding the universe, with much deeper drawdowns,
+that disappears at small-cap costs. Worth keeping in paper trading as a test of the
+pipeline. Not worth real money.
 
 ---
 
@@ -877,9 +932,9 @@ holdings, orders, and track-record figures are invented.*
 ====================================================================================
 MONITORED PAPER VALIDATION — vol_managed_momentum (LONG-ONLY vol-managed momentum)
 ====================================================================================
-This is forward paper validation of a MODEST, robust-but-not-Sharpe-dominant strategy
-(walk-forward: positive Sharpe 9/9 windows, beat market on return 5/6, flat through the
-GFC). Collecting live evidence — NOT a confirmed edge. LIVE broker.
+This is forward paper validation of a THIN-EDGE strategy (walk-forward Sharpe 0.27 vs 0.21
+for the equal-weight universe, worst drawdown -73%; see reports/RESULTS.md).
+Collecting live evidence — NOT a confirmed edge. LIVE broker.
 
 --- Safety-guard status (unchanged existing guards) ---
   DU-account guard : PASSED DU1234567
@@ -1030,34 +1085,46 @@ known-noise scenario before trusting it:** the relative rank must be computed as
 from 0.5, which quietly biases PBO downward for every run. Property-testing against
 synthetic pure-noise data (Chapter 1's philosophy, applied here too) is what caught it.
 
+### Which "trials" the Deflated Sharpe should count
+
+The first version fed the DSR the 28 CPCV path Sharpes as its trials. That's a category
+error: those paths are one configuration resampled 28 ways, so their spread measures
+*sampling noise*, not *how hard you searched*. The DSR now counts the configurations that
+were actually compared before this one was chosen: the five pre-registered momentum
+variants plus the long-only version. `reports/RESULTS.md` still shows the CPCV-path
+reading as a stricter second row, because how much of the Sharpe is noise is worth seeing.
+
 ### What this run actually said
 
 ```
-python main.py strategy vol_managed_momentum
+VMM_LONG_ONLY=true python main.py strategy vol_managed_momentum
 ```
 ```
 CPCV — combinatorial purged cross-validation (vol_managed_momentum)
-  28 splits | Sharpe distribution: min -0.23, median +0.44, max +0.99; 25/28 positive.
+  28 splits | Sharpe distribution: min -0.12, median +0.26, max +0.79; 25/28 positive.
 
 --- Deflated Sharpe Ratio (Bailey & Lopez de Prado 2014) ---
-  Observed Sharpe (annualized)      : +0.61
-  Benchmark SR0 from 28 CPCV trials (annualized): +0.67
-  Return skew / kurtosis             : -0.09 / 5.80 (normal = 0 / 3)
-  Deflated Sharpe Ratio (probability true Sharpe > SR0): 39.4%
+  Observed Sharpe (annualized)      : +0.39
+  Benchmark SR0 from 6 searched configurations (annualized): +0.08
+  Return skew / kurtosis             : +0.08 / 4.83 (normal = 0 / 3)
+  Deflated Sharpe Ratio (probability true Sharpe > SR0): 94.5%
 
 --- Probability of Backtest Overfitting (Bailey et al. 2014, CSCV) ---
   5 candidate variants, 70 train/test splits
-  PBO = 8.6% (fraction of splits where the in-sample-best variant finished at/below the OOS median)
+  PBO = 7.1% (fraction of splits where the in-sample-best variant finished at/below the OOS median)
   => LOW — the winning variant tends to generalize.
 ```
 
-**Read plainly:** the full-history Sharpe is only 39.4% likely to beat what 28
-genuinely different out-of-sample draws would produce by chance — that is NOT a passing
-grade, and this document isn't rounding it up to one. What the run *does* support is that
-the choice of *this* variant over the other four wasn't the overfitting: an 8.6% PBO says
-the selection process generalizes even though the resulting Sharpe itself remains
-unproven. Both things are true at once, and reporting only one of them would be the kind
-of cherry-picking this whole chapter exists to catch.
+(The observed Sharpe here, 0.39, is the raw mean over volatility; the 0.27 elsewhere
+subtracts a 4% risk-free rate first.)
+
+**Read plainly:** two things are well supported. The strategy's returns are probably
+positive for real rather than by luck (DSR 94.5% against a luck bar of 0.08), and choosing
+this variant over the alternatives wasn't overfitting (PBO 7%). Neither says it beats the
+market. The bar is near zero, and simply holding the equal-weight universe clears it too.
+Against that benchmark the edge is 0.27 vs 0.21 Sharpe, with deeper drawdowns. Reporting
+the 94.5% without that sentence would be the kind of cherry-picking this chapter exists to
+catch.
 
 ---
 
@@ -1069,7 +1136,7 @@ of cherry-picking this whole chapter exists to catch.
 
 Everything the system prints, in plain English, with a sense of what "good" looks like.
 Real figures below are from an actual `python main.py strategy vol_managed_momentum` run
-(OOS = the last 30% of history, never used to choose anything) — they will shift slightly
+(long/short, point-in-time universe; OOS = the last 30% of history, never used to choose anything) — they will shift slightly
 as the local Sharadar cache is refreshed, but the shape of the story won't.
 
 ### Return metrics
@@ -1082,7 +1149,7 @@ final result.
 ```
 CAGR = (end / start)^(1/years) − 1
 ```
-*OOS: vol-managed momentum +23.90%, SPY buy-hold +14.12%.*
+*OOS: vol-managed momentum +20.87%, SPY buy-hold +14.12%.*
 **Rough calibration:** the S&P has done ~10%/yr long-term. Beating it consistently is hard.
 
 ### Risk metrics
@@ -1097,7 +1164,7 @@ CAGR = (end / start)^(1/years) − 1
    ╱              ╲___╱╲
                 trough
 ```
-*OOS: vol-managed momentum -26.04%, SPY -23.93%.* Close — the vol-targeting overlay limits
+*OOS: vol-managed momentum -24.81%, SPY -23.93%.* Close — the vol-targeting overlay limits
 gross exposure but doesn't eliminate drawdown; it's judged on Sharpe and Sortino, not on
 beating the index on drawdown alone.
 
@@ -1108,7 +1175,7 @@ annualized.
 ```python
 sharpe = (mean_excess_monthly_return / std_monthly_return) * sqrt(12)
 ```
-*OOS: vol-managed momentum 0.82, SPY buy-hold 0.67, vol-matched SPY/cash blend 0.67.*
+*OOS: vol-managed momentum 0.74, SPY buy-hold 0.67, vol-matched SPY/cash blend 0.67.*
 
 | Sharpe | Interpretation |
 |---|---|
@@ -1119,7 +1186,7 @@ sharpe = (mean_excess_monthly_return / std_monthly_return) * sqrt(12)
 | > 2.0 | Either exceptional, or you have a bug. Check for a bug first. |
 
 **Sortino ratio** — like Sharpe, but only counts *downside* deviation. Upside surprises
-shouldn't be penalized. *OOS: 1.49 vs SPY's 1.03.*
+shouldn't be penalized. *OOS: 1.27 vs SPY's 1.03.*
 
 ### Relationship metrics
 
@@ -1368,7 +1435,22 @@ most of that, but "we quantified the risk" is not the same as "the risk is zero.
 **5. The paper track record is short.** A handful of monthly cycles. It's evidence
 accumulating, not evidence accumulated.
 
-**6. Nothing here has traded real money.** By design. Port 7497, the DU-prefix guard,
+**6. The universe is the top 1,500 by liquidity, not the whole market.** It is ranked
+point-in-time (Chapter 4, Killer 4), but a cap is still a choice; the report shows the
+size-matched top 750 gives a similar answer, which is some reassurance, not proof.
+
+**7. The Deflated Sharpe's trial set is the momentum variants, not the whole search.**
+~24 factors were screened before momentum was chosen. Their decile returns aren't Sharpes
+of comparable strategies, so they aren't in the DSR's trial set, and the deflation is
+milder than a full accounting would give. The report also shows a stricter reading that
+treats every CPCV path as a trial (21-29%).
+
+**8. "Long-only" can be levered.** The vol overlay scales exposure up to
+`VMM_LEVERAGE_CAP` (2x) in calm markets, financed at the risk-free rate in the backtest,
+and `paper_book` sizes the paper portfolio the same way. That needs a margin account; a
+cash account would have to cap the weight at 1, which is a different (untested) strategy.
+
+**9. Nothing here has traded real money.** By design. Port 7497, the DU-prefix guard,
 `DRY_RUN`, and the autonomy gate all exist to keep it that way until something earns the
 promotion.
 
@@ -1397,14 +1479,10 @@ promotion.
 **Read directly from the code** — all config values, thresholds, code excerpts, the
 safety-guard logic, and every architectural claim.
 
-**Read from an actual run** — the OOS/walk-forward figures in the metrics glossary are from
-a real `python main.py strategy vol_managed_momentum` run; reproduce them with that command
-against your own local Sharadar cache.
-
-**Quoted from the code's own docstrings** — the walk-forward verdict ("positive Sharpe 9/9
-windows, beat market on return 5/6, ~flat through the GFC") and the "modest,
-robust-but-not-Sharpe-dominant" framing, both from the header of
-`decision/run_paper_strategy.py`.
+**Read from an actual run** — every walk-forward, capacity, CPCV, DSR and PBO figure in
+Chapters 4, 8 and 10 is from `python main.py report` (written to `reports/RESULTS.md`) or a
+`VMM_LONG_ONLY=true python main.py strategy vol_managed_momentum` run on the point-in-time
+universe, both from the 2026-06-20 Sharadar snapshot.
 
 **📋 Illustrative** — every console block tagged `📋 ILLUSTRATIVE FORMAT` shows the *shape*
 of a report with invented figures. The command that produces the real thing is listed
