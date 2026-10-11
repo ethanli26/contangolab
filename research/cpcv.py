@@ -16,8 +16,8 @@ Three pieces, all from the same combinatorial-partition machinery:
     strategy, not a single number.
 
   * ``deflated_sharpe_ratio`` — Bailey & Lopez de Prado (2014), "The Deflated Sharpe
-    Ratio". Shrinks the observed Sharpe for (a) how many effectively-independent trials
-    were searched — estimated here from the variance of the CPCV path Sharpes — and
+    Ratio". Shrinks the observed Sharpe for (a) how many configurations were searched
+    and how much their Sharpes varied — the momentum variants that were compared — and
     (b) the return distribution's skew/kurtosis (a Sharpe ratio assumes normal returns;
     real monthly returns rarely are). Reports the probability the TRUE Sharpe exceeds the
     trial-adjusted benchmark, not just zero.
@@ -135,6 +135,12 @@ def run_cpcv(strategy, data, eligible, rebal: pd.DatetimeIndex, *,
 
 # --- Deflated Sharpe Ratio ---------------------------------------------------------------
 
+def annualized_sharpe(returns: pd.Series, periods_per_year: int = 12) -> float:
+    """Plain annualized Sharpe (no risk-free) of a periodic return series — a DSR trial input."""
+    r = returns.dropna()
+    return float(r.mean() / r.std(ddof=1) * math.sqrt(periods_per_year))
+
+
 def deflated_sharpe_ratio(observed_returns: pd.Series, trial_sharpes_annualized: list,
                           periods_per_year: int = 12) -> dict:
     """Bailey & Lopez de Prado (2014). See the module docstring for what this corrects for.
@@ -142,8 +148,11 @@ def deflated_sharpe_ratio(observed_returns: pd.Series, trial_sharpes_annualized:
     ``observed_returns``: the strategy's own (monthly) net-return series to judge — e.g.
     the full-history or OOS series, NOT one CPCV path.
     ``trial_sharpes_annualized``: the Sharpes of the "attempts" this result should be
-    judged against — the CPCV path Sharpes are a natural, non-fabricated choice: they are
-    literally how many effectively-independent looks the validation process took.
+    judged against — the configurations that were actually searched before this one was
+    picked (``main.py`` passes the five pre-registered momentum variants plus the
+    long-only version). Passing CPCV path Sharpes instead treats resampling noise of ONE
+    configuration as if it were a search over many; ``research/report.py`` reports that
+    as a stricter second reading, not as the primary one.
     """
     returns = observed_returns.dropna()
     n = len(returns)
@@ -252,7 +261,8 @@ def print_cpcv_report(strategy_name: str, cpcv_results: list, dsr_result: dict, 
 
     print("\n--- Deflated Sharpe Ratio (Bailey & Lopez de Prado 2014) ---")
     print(f"  Observed Sharpe (annualized)      : {dsr_result['sharpe_annualized']:+.2f}")
-    print(f"  Benchmark SR0 from {dsr_result['n_trials']} CPCV trials (annualized): {dsr_result['sr0_annualized']:+.2f}")
+    print(f"  Benchmark SR0 from {dsr_result['n_trials']} searched configurations (annualized): "
+          f"{dsr_result['sr0_annualized']:+.2f}")
     print(f"  Return skew / kurtosis             : {dsr_result['skew']:+.2f} / {dsr_result['kurtosis']:.2f} (normal = 0 / 3)")
     print(f"  Deflated Sharpe Ratio (probability true Sharpe > SR0): {dsr_result['dsr']*100:.1f}%")
 
@@ -281,13 +291,12 @@ def main() -> int:
     strategy = get_portfolio("vol_managed_momentum")()
 
     cpcv_results = run_cpcv(strategy, data, eligible, rebal)
-    trial_sharpes = [r["sharpe"] for r in cpcv_results]
+    variant_returns, _, _, _ = build_variant_returns(data, eligible)
     full_returns = strategy.portfolio_returns(data, eligible)
-    dsr_result = deflated_sharpe_ratio(full_returns, trial_sharpes)
+    dsr_result = deflated_sharpe_ratio(full_returns, [annualized_sharpe(s) for s in variant_returns.values()])
 
     pbo_result = None
     try:
-        variant_returns, _, _, _ = build_variant_returns(data, eligible)
         pbo_result = probability_of_backtest_overfitting(variant_returns)
     except ValueError as error:
         log.warning("Skipping PBO: %s", error)
