@@ -12,6 +12,8 @@ is changed here:
               walk-forward validation (e.g. vol_managed_momentum).
   paper     — one monthly paper rebalance for a portfolio strategy, through the
               existing DU-account guard + DRY_RUN + autonomy gate.
+  evaluate  — run every registered signal for an asset class through the shared
+              evaluator (core/), logging each trial to research/trials.jsonl.
   report    — regenerate reports/ (RESULTS.md, results.json, charts): the source of
               every number the README quotes.
 
@@ -24,6 +26,7 @@ alpha.
     python main.py altdata
     python main.py strategy vol_managed_momentum
     python main.py paper vol_managed_momentum --no-broker
+    python main.py evaluate cn_futures
     python main.py report
 """
 
@@ -176,6 +179,37 @@ def cmd_strategy(args) -> int:
     return 0
 
 
+def cmd_evaluate(args) -> int:
+    """Evaluate every registered signal for an asset class, log each trial, print the corrected table."""
+    from core.dataset import load_dataset
+    from core.evaluate import evaluate
+    from core.signals import signals
+    from core.trials import PROTOCOL, correction_table, load_trials, log_trial
+
+    specs = [s for s in signals(args.asset_class, args.family) if not args.signal or s.name in args.signal]
+    if not specs:
+        log.error("No registered signals match asset class %s / family %s.", args.asset_class, args.family)
+        return 1
+    log.info("Loading %s dataset...", args.asset_class)
+    ds = load_dataset(args.asset_class)
+    for spec in specs:
+        result, _ = evaluate(spec, ds)
+        if not args.dry_run:
+            log_trial(result, note=args.note)
+        log.info("%-28s IC %+.4f  net Sharpe %+.2f  t %+.2f  (%d months)", spec.name, result["mean_ic"] or 0,
+                 result["sharpe"] or 0, result["t_stat"] or 0, result["months"])
+    if args.dry_run:
+        return 0
+    table = correction_table(load_trials())
+    table = table[table["asset_class"] == args.asset_class]
+    cols = ["signal", "family", "months", "mean_ic", "ic_t", "ann_return", "sharpe", "t_stat", "q_family", "q_all",
+            "survivor"]
+    print(f"\n=== {args.asset_class}: latest trial per signal, protocol {PROTOCOL} "
+          f"(q = Benjamini-Hochberg over every logged signal) ===")
+    print(table[cols].to_string(index=False, float_format=lambda v: f"{v:.3f}"))
+    return 0
+
+
 def cmd_report(args) -> int:
     """Regenerate reports/ (RESULTS.md, results.json, charts) from the local archive."""
     from research.report import main as report_main
@@ -189,7 +223,7 @@ def cmd_paper(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """CLI with the five subcommands."""
+    """CLI with the six subcommands."""
     parser = argparse.ArgumentParser(prog="main.py", description="pit-backtester — integrated entry point.")
     subparsers = parser.add_subparsers(dest="command", required=True)
     for name, func, help_text in [
@@ -203,6 +237,15 @@ def build_parser() -> argparse.ArgumentParser:
         "strategy", help="run a portfolio strategy's backtest + benchmark + walk-forward")
     strat_parser.add_argument("name", help="registered portfolio strategy (e.g. vol_managed_momentum)")
     strat_parser.set_defaults(func=cmd_strategy)
+    # Evaluate registered signals on an asset class and log every trial (core/).
+    eval_parser = subparsers.add_parser(
+        "evaluate", help="evaluate registered signals for an asset class; every run is logged to research/trials.jsonl")
+    eval_parser.add_argument("asset_class", help="us_equity or cn_futures")
+    eval_parser.add_argument("--family", default=None, help="only signals of this family")
+    eval_parser.add_argument("--signal", nargs="*", default=None, help="only these signals")
+    eval_parser.add_argument("--note", default="", help="free-text note stored with each trial")
+    eval_parser.add_argument("--dry-run", action="store_true", help="evaluate without logging trials")
+    eval_parser.set_defaults(func=cmd_evaluate)
     # Monthly paper rebalance for a portfolio strategy (existing DU + DRY_RUN + gate path).
     paper_parser = subparsers.add_parser(
         "paper", help="run one monthly paper rebalance for a portfolio strategy")
