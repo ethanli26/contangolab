@@ -46,6 +46,11 @@ MAX_ADV_PARTICIPATION = float(os.getenv("MAX_ADV_PARTICIPATION", "0.01"))  # cap
 # month-end (no look-ahead). "static" is the old full-history ranking, kept only as a baseline.
 UNIVERSE_MODE = os.getenv("UNIVERSE_MODE", "pit")
 
+# --- China commodity futures (second asset class; data/futures_cn.py) ---
+# Folder holding futures_daily.csv + contract_specs.csv (written by the ~/ddb pull scripts).
+FUTURES_CN_DIR = os.getenv("FUTURES_CN_DIR", os.path.join(os.path.dirname(__file__), "data", "cache", "futures_cn"))
+FUTURES_COST_BPS_PER_SIDE = float(os.getenv("FUTURES_COST_BPS_PER_SIDE", "3"))  # ~1bp fee + ~1 tick, liquid contracts
+
 # --- Realistic per-side slippage (basis points) by size tier ---
 # Less-liquid tiers cost more to trade; applied on both entry and exit.
 SLIPPAGE_BPS_LARGE = float(os.getenv("SLIPPAGE_BPS_LARGE", "5"))
