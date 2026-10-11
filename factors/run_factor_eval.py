@@ -29,8 +29,11 @@ from backtest.universe import (  # noqa: E402
     constituents,
     load_bars,
     load_sharadar_broad,
+    membership_to_daily,
     select_liquid_sharadar_universe,
+    select_point_in_time_universe,
 )
+import config  # noqa: E402
 from config import LIQUIDITY_LOOKBACK, MIN_DOLLAR_VOLUME, MIN_PRICE  # noqa: E402
 from data.sharadar_provider import SharadarUnavailable, build_fundamental_panels  # noqa: E402
 from factors.base import FactorData, all_factors  # noqa: E402
@@ -196,21 +199,37 @@ def print_risk_cluster(large: dict, broad: dict) -> tuple[int, int]:
 SHARADAR_MAX_SYMBOLS = 1500   # cap the most-liquid survivorship-free sample (bounds panel size)
 
 
-def build_sharadar_factor_data(cache_only: bool = True) -> tuple[FactorData, pd.DataFrame]:
+def build_sharadar_factor_data(cache_only: bool = True,
+                               universe_mode: str | None = None) -> tuple[FactorData, pd.DataFrame]:
     """Assemble point-in-time, survivorship-free FactorData from the local Sharadar archive.
 
     Defaults to ``cache_only`` so the run reads ONLY local parquet (zero API calls),
-    proving the archive is self-sufficient. Selects the most-liquid US common stocks
-    (delisted included), builds price panels + filing-dated fundamental panels. Returns
+    proving the archive is self-sufficient. ``universe_mode`` (default
+    ``config.UNIVERSE_MODE``) picks the universe: ``"pit"`` = top names by trailing
+    dollar volume as of each month-end (no look-ahead), ``"static"`` = the legacy
+    full-history ranking kept as a bias baseline. Builds price panels + filing-dated
+    fundamental panels. Returns
     ``(FactorData, eligible_mask)``. Raises ``SharadarUnavailable``/``SharadarCacheMiss``
     if the archive is missing.
     """
     from data.sharadar_provider import SharadarProvider
 
     provider = SharadarProvider(cache_only=cache_only)
-    tickers = select_liquid_sharadar_universe(provider, max_symbols=SHARADAR_MAX_SYMBOLS)
-    log.info("Selected %d liquid survivorship-free common stocks.", len(tickers))
-    bars, filings, benchmark_close = load_sharadar_broad(provider=provider, tickers=tickers)
+    mode = universe_mode or config.UNIVERSE_MODE
+    if mode == "pit":
+        members = select_point_in_time_universe(provider, top_n=SHARADAR_MAX_SYMBOLS)
+        tickers = list(members.columns)
+        log.info("Point-in-time universe: top %d by trailing dollar volume each month; "
+                 "%d distinct names over the history.", SHARADAR_MAX_SYMBOLS, len(tickers))
+    elif mode == "static":
+        members = None
+        tickers = select_liquid_sharadar_universe(provider, max_symbols=SHARADAR_MAX_SYMBOLS)
+        log.warning("STATIC universe: %d names ranked on full-history liquidity "
+                    "(look-ahead biased; baseline only).", len(tickers))
+    else:
+        raise ValueError(f"unknown universe mode {mode!r} (expected 'pit' or 'static')")
+    bars, filings, benchmark_close = load_sharadar_broad(
+        provider=provider, tickers=tickers, full_history_filters=(mode == "static"))
     symbols = sorted(bars)
     master = benchmark_close.index if benchmark_close is not None else bars[symbols[0]].index
 
@@ -222,7 +241,10 @@ def build_sharadar_factor_data(cache_only: bool = True) -> tuple[FactorData, pd.
     data = FactorData(open=panel("Open"), high=panel("High"), low=panel("Low"),
                       close=panel("Close"), volume=panel("Volume"),
                       market=benchmark_close, fundamentals=fundamentals)
-    return data, liquidity_mask(data)
+    eligible = liquidity_mask(data)
+    if members is not None:
+        eligible &= membership_to_daily(members, master).reindex(columns=eligible.columns, fill_value=False)
+    return data, eligible
 
 
 def assert_filing_date_safety(data: FactorData, factor_name: str = "profitability") -> None:

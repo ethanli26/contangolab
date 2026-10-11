@@ -42,6 +42,9 @@ MIN_DOLLAR_VOLUME = float(os.getenv("MIN_DOLLAR_VOLUME", "5000000"))        # >=
 MIN_PRICE = float(os.getenv("MIN_PRICE", "5.0"))                           # avoid sub-$5 names
 LIQUIDITY_LOOKBACK = int(os.getenv("LIQUIDITY_LOOKBACK", "20"))
 MAX_ADV_PARTICIPATION = float(os.getenv("MAX_ADV_PARTICIPATION", "0.01"))  # cap a position at 1% of ADV
+# Which stocks are investable on each date. "pit" ranks by trailing dollar volume as of each
+# month-end (no look-ahead). "static" is the old full-history ranking, kept only as a baseline.
+UNIVERSE_MODE = os.getenv("UNIVERSE_MODE", "pit")
 
 # --- Realistic per-side slippage (basis points) by size tier ---
 # Less-liquid tiers cost more to trade; applied on both entry and exit.

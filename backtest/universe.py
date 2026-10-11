@@ -220,8 +220,13 @@ def select_liquid_sharadar_universe(provider, max_symbols: int = 1500,
     Reads the bulk SEP parquet ONCE to compute each ticker's median daily dollar volume
     and history length, restricts to common-stock categories (delisted INCLUDED), keeps
     names clearing the liquidity/history floors, and returns the top ``max_symbols`` by
-    median dollar volume. Selecting by a full-history liquidity summary (not by survival)
-    keeps the sample survivorship-free while bounding panel size.
+    median dollar volume.
+
+    LOOK-AHEAD WARNING: this ranks on a FULL-HISTORY median, so a name that was small in
+    2000 but huge by 2020 is selected for 2000 because of what it later became. That is a
+    universe-selection look-ahead bias (it quietly favors future winners). Kept only as
+    the "static" baseline for ``research/universe_bias.py``; the default universe is
+    :func:`point_in_time_membership`.
     """
     import pandas as _pd
 
@@ -243,8 +248,86 @@ def select_liquid_sharadar_universe(provider, max_symbols: int = 1500,
     return ranked.index[:max_symbols].tolist()
 
 
+# --- Point-in-time universe membership ------------------------------------------------
+
+PIT_LOOKBACK_MONTHS = 3   # trailing window for the as-of dollar-volume rank
+
+
+def point_in_time_membership(sep: pd.DataFrame, top_n: int,
+                             lookback_months: int = PIT_LOOKBACK_MONTHS,
+                             min_history_bars: int = MIN_HISTORY_BARS) -> pd.DataFrame:
+    """Month-end universe membership using only data available on that date.
+
+    ``sep`` is long-format daily bars with columns ``ticker, date, close, volume``. For
+    each month-end trading day ``t``, a ticker is a member iff, using bars <= ``t`` only:
+
+      * it traded on ``t`` itself (a name that delisted mid-month can't be bought at ``t``),
+      * it has at least ``min_history_bars`` bars of history so far, and
+      * its average daily dollar volume over the trailing ``lookback_months`` ranks in the
+        top ``top_n`` of all such tickers on ``t``.
+
+    Returns a bool DataFrame indexed by the month-end trading dates, one column per ticker
+    that was EVER a member. LOOK-AHEAD GUARD: every quantity is a cumulative or trailing
+    aggregate ending at ``t``; ``tests/test_pit_universe.py`` proves that deleting all
+    bars after ``t`` cannot change membership at ``t``.
+    """
+    bars = sep[["ticker", "date", "close", "volume"]].copy()
+    bars["date"] = pd.to_datetime(bars["date"])
+    bars["dollar_volume"] = bars["close"] * bars["volume"]
+    bars["month"] = bars["date"].dt.to_period("M")
+
+    month_end = bars.groupby("month")["date"].max()          # last trading day per month
+    per = bars.groupby(["month", "ticker"]).agg(
+        dv_sum=("dollar_volume", "sum"), n=("dollar_volume", "size"), last=("date", "max"))
+    dv_sum = per["dv_sum"].unstack("ticker").sort_index().fillna(0.0)
+    n_bars = per["n"].unstack("ticker").reindex(dv_sum.index).fillna(0.0)
+    last = per["last"].unstack("ticker").reindex(dv_sum.index)
+
+    window = lookback_months
+    trailing_n = n_bars.rolling(window, min_periods=1).sum()
+    trailing_adv = dv_sum.rolling(window, min_periods=1).sum() / trailing_n.where(trailing_n > 0)
+    history = n_bars.cumsum()
+    traded_at_close = last.eq(month_end.reindex(dv_sum.index), axis=0)
+
+    candidate = trailing_adv.where(traded_at_close & (history >= min_history_bars))
+    members = candidate.rank(axis=1, ascending=False, method="first") <= top_n
+    members = members.loc[:, members.any()]
+    members.index = pd.DatetimeIndex(month_end.reindex(members.index).to_numpy(), name="date")
+    return members
+
+
+def select_point_in_time_universe(provider, top_n: int = 1500) -> pd.DataFrame:
+    """Point-in-time top-``top_n`` liquid US common stocks per month, from the local archive.
+
+    Reads the bulk SEP parquet once, restricts to common-stock categories (delisted
+    INCLUDED), and returns :func:`point_in_time_membership`. Its columns are the full
+    candidate list to load; its rows say who was investable at each month-end.
+    """
+    tickers_frame = provider.get_universe()
+    common = set(tickers_frame.loc[
+        tickers_frame["category"].isin(COMMON_STOCK_CATEGORIES), "ticker"])
+    sep_path = provider.bulk_dir / "SEP.parquet"
+    if not sep_path.exists():
+        raise FileNotFoundError(
+            f"{sep_path} not found; run the SEP bulk archive before selecting the universe.")
+    sep = pd.read_parquet(sep_path, columns=["ticker", "date", "close", "volume"])
+    sep = sep[sep["ticker"].isin(common)]
+    return point_in_time_membership(sep, top_n)
+
+
+def membership_to_daily(members: pd.DataFrame, index: pd.DatetimeIndex) -> pd.DataFrame:
+    """Carry month-end membership forward onto a daily index (False before the first month).
+
+    Membership decided at month-end ``t`` applies from ``t`` until the next month-end,
+    which is exactly when the strategy holds the book formed at ``t``.
+    """
+    daily = members.astype(float).reindex(members.index.union(index)).ffill()
+    return daily.reindex(index).fillna(0.0).astype(bool)
+
+
 def load_sharadar_broad(provider=None, min_dollar_volume: float = SHARADAR_MIN_DOLLAR_VOLUME,
-                        max_symbols: int | None = None, tickers: list[str] | None = None):
+                        max_symbols: int | None = None, tickers: list[str] | None = None,
+                        full_history_filters: bool = True):
     """Load the survivorship-free US universe from Sharadar, INCLUDING delisted names.
 
     This is the real fix for survivorship bias. Unlike the hardcoded ``large/mid/small/
@@ -256,7 +339,11 @@ def load_sharadar_broad(provider=None, min_dollar_volume: float = SHARADAR_MIN_D
 
     ``tickers`` supplies an explicit symbol list (e.g. from
     :func:`select_liquid_sharadar_universe`); otherwise it falls back to the raw TICKERS
-    order capped at ``max_symbols``. Returns ``(bars, filings_by_symbol, benchmark_close)``.
+    order capped at ``max_symbols``. ``full_history_filters=False`` skips the
+    whole-life history/median-liquidity drops below — the point-in-time universe passes
+    False, because dropping a name for being illiquid LATER in its life (the typical
+    path of a failing company) is itself a look-ahead.
+    Returns ``(bars, filings_by_symbol, benchmark_close)``.
     Raises ``SharadarUnavailable`` in stub mode (no API key).
     """
     from data.sharadar_provider import SF1_FIELDS, SharadarProvider
@@ -270,11 +357,14 @@ def load_sharadar_broad(provider=None, min_dollar_volume: float = SHARADAR_MIN_D
     raw_bars = provider.get_price_bars(list(tickers))
     bars: dict[str, pd.DataFrame] = {}
     for symbol, frame in raw_bars.items():
-        if frame is None or len(frame) < MIN_HISTORY_BARS:
+        if frame is None or frame.empty:
             continue
-        # Liquidity floor on the FULL history (the harness re-checks as-of each date).
-        if (frame["Close"] * frame["Volume"]).median() < min_dollar_volume:
-            continue
+        if full_history_filters:
+            if len(frame) < MIN_HISTORY_BARS:
+                continue
+            # Liquidity floor on the FULL history (the harness re-checks as-of each date).
+            if (frame["Close"] * frame["Volume"]).median() < min_dollar_volume:
+                continue
         bars[symbol] = frame
     # Sharadar SEP is equities-only (no ETFs), so there is no SPY to use as the market.
     # Build an EQUAL-WEIGHTED index from the universe itself as the market proxy for the
