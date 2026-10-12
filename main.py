@@ -14,6 +14,8 @@ is changed here:
               existing DU-account guard + DRY_RUN + autonomy gate.
   evaluate  — run every registered signal for an asset class through the shared
               evaluator (core/), logging each trial to research/trials.jsonl.
+  alpha     — combine an asset class's signals into one score, walk-forward (ew, IC-weighted,
+              ridge, XGBoost), judged against the best single signal (core/alpha.py).
   report    — regenerate reports/ (RESULTS.md, results.json, charts): the source of
               every number the README quotes.
 
@@ -27,6 +29,7 @@ alpha.
     python main.py strategy vol_managed_momentum
     python main.py paper vol_managed_momentum --no-broker
     python main.py evaluate cn_futures
+    python main.py alpha cn_futures
     python main.py report
 """
 
@@ -210,6 +213,38 @@ def cmd_evaluate(args) -> int:
     return 0
 
 
+def cmd_alpha(args) -> int:
+    """Fit the P2 combinations walk-forward, compare OOS with the single signals, log each as a trial."""
+    from core.alpha import PROTOCOL, run
+    from core.dataset import load_dataset
+    from core.signals import signals
+    from core.trials import log_trial
+
+    specs = signals(args.asset_class)
+    log.info("Loading %s dataset (%d signals in the pool)...", args.asset_class, len(specs))
+    out = run(load_dataset(args.asset_class), specs)
+    if not args.dry_run:
+        for res in out["results"].values():
+            log_trial(res, protocol=PROTOCOL, note=args.note)
+    first, last, n = out["oos"]
+    print(f"\n=== {args.asset_class}: alpha model, protocol {PROTOCOL} ({out['combo_kind']} portfolio) ===")
+    print(f"OOS {first.date()} .. {last.date()} ({n} months), halves split at {out['half'].date()}")
+    best = out["best_names"]
+    print(f"best single signal: OOS {best['oos']}, first half {best['h1']}, second half {best['h2']}\n")
+    print("net Sharpe")
+    print(out["table"].to_string(float_format=lambda v: f"{v:+.2f}"))
+    print("\nsingle signals, same months")
+    print(out["singles"].sort_values("oos", ascending=False).to_string(float_format=lambda v: f"{v:+.2f}"))
+    v = out["verdict"]
+    print("\npassed the bar: " + ", ".join(f"{m} {'yes' if ok else 'no'}" for m, ok in v["passed"].items()))
+    print(f"VERDICT: {v['text']}")
+    dest = Path(__file__).resolve().parent / "research" / "output" / f"alpha_{args.asset_class}.csv"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({m: mo["net"] for m, mo in out["monthly"].items()}).to_csv(dest)
+    log.info("Monthly net returns per method -> %s", dest)
+    return 0
+
+
 def cmd_report(args) -> int:
     """Regenerate reports/ (RESULTS.md, results.json, charts) from the local archive."""
     from research.report import main as report_main
@@ -223,7 +258,7 @@ def cmd_paper(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """CLI with the six subcommands."""
+    """CLI with the seven subcommands."""
     parser = argparse.ArgumentParser(prog="main.py", description="pit-backtester — integrated entry point.")
     subparsers = parser.add_subparsers(dest="command", required=True)
     for name, func, help_text in [
@@ -246,6 +281,13 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument("--note", default="", help="free-text note stored with each trial")
     eval_parser.add_argument("--dry-run", action="store_true", help="evaluate without logging trials")
     eval_parser.set_defaults(func=cmd_evaluate)
+    # Combine signals into one alpha score, walk-forward (core/alpha.py).
+    alpha_parser = subparsers.add_parser(
+        "alpha", help="walk-forward signal combination (ew / IC-weighted / ridge / XGBoost) vs the best single signal")
+    alpha_parser.add_argument("asset_class", help="us_equity or cn_futures")
+    alpha_parser.add_argument("--note", default="", help="free-text note stored with each trial")
+    alpha_parser.add_argument("--dry-run", action="store_true", help="run without logging trials")
+    alpha_parser.set_defaults(func=cmd_alpha)
     # Monthly paper rebalance for a portfolio strategy (existing DU + DRY_RUN + gate path).
     paper_parser = subparsers.add_parser(
         "paper", help="run one monthly paper rebalance for a portfolio strategy")

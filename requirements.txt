@@ -11,6 +11,7 @@ pandas
 numpy
 scipy                   # research/cpcv.py: skew, kurtosis, the normal CDF
 matplotlib              # research/report.py: the charts in reports/
+xgboost                 # core/alpha.py: the gradient-boosted combination
 
 # Broker / execution
 ib_async
