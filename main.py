@@ -22,6 +22,8 @@ is changed here:
   allocate  — P5: combine the US long-short book (after borrow/financing) with the China
               futures book, walk-forward weights, and pick the vol dial from the drawdown
               tolerance (core/allocation.py).
+  events    — E1: US event-driven signals (earnings surprises, insider clusters, dividend
+              initiations) as weekly calendar-time portfolios vs the universe (core/events.py).
   report    — regenerate reports/ (RESULTS.md, results.json, charts): the source of
               every number the README quotes.
 
@@ -38,6 +40,7 @@ alpha.
     python main.py alpha cn_futures
     python main.py design cn_futures
     python main.py allocate
+    python main.py events
     python main.py report
 """
 
@@ -387,6 +390,78 @@ def cmd_allocate(args) -> int:
     return 0
 
 
+def cmd_events(args) -> int:
+    """E1: build the event tables, run each pre-registered event signal, log trials, chart the drift."""
+    from core import events as ev
+    from core.dataset import load_dataset
+    from core.portfolio import simulate
+    from core.trials import correction_table, load_trials, log_trial
+    from data import us_events as ue
+    from research.event_study import BLUE, GRAY, ORANGE, car_chart
+
+    ds = load_dataset("us_equity")
+    close, tickers = ds.close, list(ds.close.columns)
+    log.info("Building event tables from the Sharadar archive...")
+    sue_e = ev.only_eligible(ue.sue(tickers), ds)
+    ear_e = ev.only_eligible(ue.ear(ue.earnings_dates(tickers), close, ds.eligible), ds)
+    sue10, ear10 = ev.classify(sue_e, 0.10), ev.classify(ear_e, 0.10)
+    dbl = ev.only_eligible(ev.double_surprise(ev.classify(sue_e, 0.20), ev.classify(ear_e, 0.20)), ds)
+    ins = ev.only_eligible(ue.insider_clusters(tickers), ds)
+    div = ev.only_eligible(ue.dividend_initiations(close), ds)
+    log.info("Events in the universe: SUE %d, EAR %d, double %d, insider clusters %d, dividend initiations %d",
+             len(sue_e), len(ear_e), len(dbl), len(ins), len(div))
+
+    grid = ev.weekly_grid(ds)
+    bench = simulate(ev.universe_targets(ds, grid), close.pct_change(fill_method=None), 0.0)["net"]
+    specs = [("sue", sue10[sue10["top"]], sue10[sue10["bottom"]], 1989),
+             ("ear", ear10[ear10["top"]], ear10[ear10["bottom"]], 1996),
+             ("double_surprise", dbl, None, 2008),
+             ("insider_cluster", ins, None, 2001),
+             ("div_initiation", div, None, 1995)]
+    results = []
+    for name, long, short, published in specs:
+        log.info("Running %s (%d long events)...", name, len(long))
+        res = ev.run_signal(name, long, ds, grid, bench, published, short)["result"]
+        results.append(res)
+        if not args.dry_run:
+            log_trial(res, protocol=ev.PROTOCOL, note=args.note)
+
+    def f(v, fmt):
+        return format(v, fmt) if v is not None else "n/a"
+    print(f"\n=== E1 US event signals, protocol {ev.PROTOCOL}: long leg net of 15 bps/side minus the "
+          "equal-weight PIT universe, weekly ===")
+    print(f"{'signal':17s} {'from':>7s} {'names':>6s} {'excess/yr':>9s} {'IR':>6s} {'t':>6s} {'h1 IR':>6s} {'h2 IR':>6s} "
+          f"{'post-pub IR':>11s} {'L-S IR':>7s} {'turnover/mo':>11s}")
+    for r in results:
+        ls = r.get("long_short", {})
+        print(f"{r['signal']:17s} {r['start'][:7]:>7s} {r['avg_names']:6.0f} {f(r['ann_return'], '+.1%'):>9s} "
+              f"{f(r['sharpe'], '+.2f'):>6s} {f(r['t_stat'], '+.2f'):>6s} {f(r['h1']['sharpe'], '+.2f'):>6s} "
+              f"{f(r['h2']['sharpe'], '+.2f'):>6s} {f(r.get('post_publication', {}).get('sharpe'), '+.2f'):>11s} "
+              f"{f(ls.get('sharpe'), '+.2f'):>7s} {r['avg_turnover']:11.2f}")
+    if not args.dry_run:
+        table = correction_table(load_trials(), protocol=None)
+        table = table[table["family"] == ev.FAMILY]
+        print("\nmultiple-testing correction over the whole registry (latest run of every signal/config):")
+        print(table[["signal", "months", "t_stat", "p", "q_all", "survivor"]].to_string(
+            index=False, float_format=lambda v: f"{v:.3f}"))
+
+    level = ue.universe_index(close, ds.eligible)
+    paths = {k: ev.car_paths(e, ds, level) for k, e in [
+        ("sue_top", sue10[sue10["top"]]), ("sue_bottom", sue10[sue10["bottom"]]),
+        ("ear_top", ear10[ear10["top"]]), ("ear_bottom", ear10[ear10["bottom"]]),
+        ("double", dbl), ("insider", ins), ("div", div)]}
+    out = Path(__file__).resolve().parent / "reports" / "events_car.png"
+    car_chart(out, [
+        ("Earnings surprise (SUE)", [("top decile", paths["sue_top"], BLUE), ("bottom decile", paths["sue_bottom"], ORANGE)]),
+        ("Announcement return (EAR)", [("top decile", paths["ear_top"], BLUE),
+                                       ("bottom decile", paths["ear_bottom"], ORANGE)]),
+        ("Long-only events", [("double surprise", paths["double"], BLUE), ("insider cluster", paths["insider"], ORANGE),
+                              ("dividend initiation", paths["div"], GRAY)]),
+    ], "Point-in-time top-1500 US stocks; day 0 = the day the news is public; before costs. Source: Sharadar.")
+    log.info("Drift chart -> %s", out)
+    return 0
+
+
 def cmd_report(args) -> int:
     """Regenerate reports/ (RESULTS.md, results.json, charts) from the local archive."""
     from research.report import main as report_main
@@ -400,7 +475,7 @@ def cmd_paper(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """CLI with the nine subcommands."""
+    """CLI with the ten subcommands."""
     parser = argparse.ArgumentParser(prog="main.py", description="pit-backtester — integrated entry point.")
     subparsers = parser.add_subparsers(dest="command", required=True)
     for name, func, help_text in [
@@ -443,6 +518,12 @@ def build_parser() -> argparse.ArgumentParser:
     alloc_parser.add_argument("--note", default="", help="free-text note stored with each trial")
     alloc_parser.add_argument("--dry-run", action="store_true", help="run without logging trials")
     alloc_parser.set_defaults(func=cmd_allocate)
+    # E1 US event-driven signals (core/events.py).
+    events_parser = subparsers.add_parser(
+        "events", help="E1: US event-driven signals as weekly calendar-time portfolios; logs trials, draws the drift chart")
+    events_parser.add_argument("--note", default="", help="free-text note stored with each trial")
+    events_parser.add_argument("--dry-run", action="store_true", help="run without logging trials")
+    events_parser.set_defaults(func=cmd_events)
     # Monthly paper rebalance for a portfolio strategy (existing DU + DRY_RUN + gate path).
     paper_parser = subparsers.add_parser(
         "paper", help="run one monthly paper rebalance for a portfolio strategy")
