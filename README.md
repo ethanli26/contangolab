@@ -107,7 +107,7 @@ flowchart TD
 ## Platform core: any signal, any asset class
 
 The project is growing from one strategy into a multi-asset research platform (US stocks,
-China commodity futures, A-shares next). Six shared drivers in `core/` make that possible:
+China commodity futures, A-shares next). Seven shared drivers in `core/` make that possible:
 
 | Driver | What it does |
 |---|---|
@@ -116,6 +116,7 @@ China commodity futures, A-shares next). Six shared drivers in `core/` make that
 | `core/evaluate.py` | The same monthly test for every signal: rank IC plus a cost-aware long-short, split by halves and before/after publication |
 | `core/alpha.py` | Combines all of an asset class's signals into one score, fit walk-forward only: equal weight, IC-weighted, ridge, XGBoost |
 | `core/portfolio.py` + `core/design.py` | Turns a score into a book (long-short, long-only top-N, time-series; buffer, sector-neutral, vol target), simulates it with drifting holdings and costs, and searches the design space with a walk-forward selector |
+| `core/allocation.py` | Combines books (risk parity / 50-50 / shrunk max-Sharpe, walk-forward) and sets leverage from a drawdown limit |
 | `core/trials.py` | An append-only log of every test ever run (`research/trials.jsonl`, committed), with Benjamini-Hochberg multiple-testing correction computed from it |
 
 ```
@@ -166,6 +167,26 @@ US and in futures. The one place complexity paid is the US long-short book, wher
 plus sector neutrality plus a vol target holds up out of sample. That book can't go in a cash
 account: it needs shorting, and borrow and financing costs are not modeled yet.
 
+**Putting it together: two uncorrelated books.** The US long-short book, now charged 0.5%/yr
+short borrow and a 0.5%/yr financing spread, and the China futures book are almost
+uncorrelated (+0.04, 2014–2026). Weighting them by inverse volatility, using only past
+data, beats each book alone in both halves:
+
+| 2014-05 → 2026-06, after all costs | Sharpe | CAGR over cash | Max drawdown |
+|---|---|---|---|
+| US long-short book | 0.54 | 4.5% | −27.3% |
+| China futures book | 0.72 | 4.5% | −9.4% |
+| **Risk-parity combination** | **0.88** (0.88 / 0.87 by half) | 4.7% | −5.7% |
+| …levered to a 10% vol target | 0.83 | 8.6% | −13.1% |
+| …15% target | 0.83 | 12.7% | −20.0% |
+| …4× leverage cap (25% target, the drawdown rule's pick) | 0.88 | 17.9% | −24.1% |
+
+The leverage rule picks the highest target whose bootstrapped 10-year drawdown stays within
+35%. It chose the top setting, which runs into the 4× cap. Under a 1.5%/yr borrow-cost stress
+it picks 15% instead. The leverage assumes institutional portfolio margin, and most China
+futures aren't open to foreign retail accounts. Treat this as a property of the strategy,
+not a deployable plan.
+
 
 The futures pipeline is a pandas port of a DolphinDB research lab and is checked against it:
 `research/reconcile_futures.py` shows the continuous-contract panel (157,395 rows) and the
@@ -213,7 +234,7 @@ daily P&L of all six ported futures strategies identical to floating-point preci
 
 ## Running
 
-`main.py` is the single entry point, with eight subcommands:
+`main.py` is the single entry point, with nine subcommands:
 
 ```
 python main.py factors                          # test each factor for predictive power
@@ -223,6 +244,7 @@ python main.py report                            # regenerate reports/ (tables +
 python main.py evaluate us_equity                # every registered signal, logged to research/trials.jsonl
 python main.py alpha us_equity                   # walk-forward signal combinations, logged as trials
 python main.py design us_equity                  # P3 design space + walk-forward selector (~15 min)
+python main.py allocate                          # P5: combine books + leverage dial (~15 min)
 python main.py paper vol_managed_momentum        # one monthly paper rebalance (needs TWS/IB Gateway)
 ```
 
