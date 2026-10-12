@@ -2,7 +2,105 @@
 
 ![CI](https://github.com/ethanli26/pit-backtester/actions/workflows/ci.yml/badge.svg)
 
-## What this is
+A research platform for **commodity futures** that is built not to fool itself. It turns raw
+exchange records into continuous contracts and tests trading signals under rules fixed before
+any results are seen. It then runs the identical code on **Chinese and US commodity markets**
+to find out which edges are real, and where.
+
+## Headline results
+
+| | China commodity futures | US commodity futures (CME Group) |
+|---|---|---|
+| Data | 71 markets, 2012–2026, daily per-contract bars | 24 markets, 2016–2026, CME official settlements (21M exchange records via Databento) + CFTC trader positioning |
+| Signals tested | 6 (trend, momentum, carry) | the same 6 + basis-momentum + hedging pressure |
+| Survive multiple-testing correction | **5 of 6** (all trend and momentum) | **0 of 8** |
+| Best signal, net Sharpe | 0.66 (1-month trend) | 0.41 (1-month trend) |
+
+![China vs US](reports/cross_market.png)
+
+1. **The same strategies are weaker in US commodities.** Over identical years (2016–2026), China
+   beats the US on all six shared signals, by 0.1–0.4 in Sharpe. US trend is still positive,
+   but ten years can't separate it from luck.
+2. **Carry, the best-documented commodity factor, lost money in the US.** In spring 2020 it was
+   short crude, gasoline and heating oil at peak contango (the curve sloping steeply upward),
+   and in May those rallied 19–45%.
+3. **The two markets' trend returns are only 0.3–0.4 correlated.** That makes them natural
+   diversifiers. A China futures book combined with a US equity long-short book, weighted by
+   risk using only past data, reaches a net Sharpe of 0.88 (2014–2026, both halves 0.87–0.88;
+   details below).
+
+**What makes the numbers trustworthy:**
+- **Exchange-grade prices:**
+  - US closes are CME's official settlements, not last trades, so every contract month is priced
+    at the same moment and roll yields compare like with like.
+  - CME changed how it flags "final" settlements around 2016–17. The loader handles both formats,
+    and where both exist they match on 100% of 1.6M contract-days.
+- **No future data:**
+  - Open interest is used one day late, because CME publishes it the next morning.
+  - CFTC positioning reports are used a week after their as-of date, with government-shutdown
+    backlogs delayed to the day the CFTC actually caught up.
+  - The roll to the next contract is decided on yesterday's data.
+- **Pre-registered:**
+  - Every test's signals, sign, cost and pass bar are committed before the first run.
+  - Every test ever run (218 so far) is logged in `research/trials.jsonl`.
+  - Results are corrected for multiple testing (Benjamini-Hochberg) across that whole log.
+- **Cross-checked:**
+  - The China pipeline reproduces a separate DolphinDB research lab to floating-point precision
+    (157,395 contract-days, six strategies' daily P&L).
+  - US prices match known events: the June 2020 crude contract at $20.43 on the day May went
+    negative, gold's $2,069.4 record, the 2025 copper and 2026 silver crashes.
+
+## How the commodity pipeline works
+
+```mermaid
+flowchart LR
+    A["Exchange records\n(per contract, per day)"] --> B["Continuous contracts\n(roll on open interest,\nno look-ahead)"]
+    C["CFTC trader positioning\n(usable 1 week later)"] --> D
+    B --> D["Signals\n(trend, carry, basis-momentum,\nhedging pressure)"]
+    D --> E["Same monthly test for all:\nlong-short, net of costs"]
+    E --> F{"Survives correction over\nevery test ever logged?"}
+    F -- no --> G["Logged as a failure"]
+    F -- yes --> H["Portfolio construction\nand risk-parity allocation"]
+```
+
+## US commodity futures in detail (C1)
+
+The same continuous-contract code and the same monthly test, run on 24 CME commodity futures:
+energy, metals, grains and livestock. Prices are CME's official settlements, 2016–2026, from
+Databento. Two US-only signals were added:
+- basis-momentum (Boons & Prado 2019);
+- hedging pressure from the CFTC positioning reports (Basu & Miffre 2013).
+
+The protocol was committed before the first run. That includes one amendment: CME open-interest
+history starts in November 2015, which is why the sample begins in 2016.
+
+| Signal | US net Sharpe (h1 / h2) | q (all trials) | China, same years |
+|---|---|---|---|
+| 1-month trend (TS1) | 0.41 (0.42 / 0.39) | 0.12 | 0.55 |
+| 12-month trend (TS12) | 0.33 (0.15 / 0.53) | 0.18 | 0.43 |
+| Basis-momentum | 0.32 (−0.33 / 0.77) | 0.20 | — |
+| 63-day rank momentum | 0.31 (0.30 / 0.32) | 0.20 | 0.67 |
+| Donchian breakout | 0.19 (0.37 / −0.01) | 0.31 | 0.36 |
+| 20/60 moving average | 0.09 (0.16 / −0.00) | 0.43 | 0.42 |
+| Hedging pressure | −0.05 (−0.02 / −0.07) | 0.60 | — |
+| Carry | −0.11 (−0.72 / 0.42) | 0.68 | 0.30 |
+
+None clears the bar of q ≤ 0.10 and positive in both halves.
+- **Trend:** positive in the US, but below China on every signal over the same years
+  (`python -m research.cross_market`). Ten years of monthly returns can't tell a 0.3–0.4
+  Sharpe apart from luck. The four trend signals are also largely
+  one bet: their returns correlate 0.4–0.9.
+- **Carry:** the best-documented commodity factor lost money. In spring 2020 it was short crude,
+  gasoline and heating oil at peak contango, and those then rallied 19–45% in May.
+- **Costs:** doubling them to 6 bps per side barely changes anything.
+- **Hedging pressure:** noise with fat years (+38% in 2025, −24% in 2021), and negatively
+  correlated with carry and basis-momentum (−0.3 to −0.4).
+
+Not covered yet: the US books are not combined into a portfolio, because that step was
+pre-registered to run only if a US signal survived.
+
+
+## Where it started: US equities
 
 Most backtests lie to you, usually by accident. A strategy can look great in a backtest
 and still be worthless in real life, because the test used data that would not have been
@@ -39,7 +137,7 @@ market data), with safety checks that make it very hard to place a live order by
 
 For the full walkthrough of how each piece works, read `ARCHITECTURE.md`.
 
-## Results
+### Equity results
 
 All numbers come from `python main.py report`, which writes [`reports/RESULTS.md`](reports/RESULTS.md)
 and the charts below. Walk-forward out of sample, January 2000 to June 2026, after 15 bps per
@@ -208,36 +306,6 @@ day after the filing, which a weekly rebalance can't catch. Bad news still drift
 deciles −1.2% over three months), but profiting from that requires shorting. This matches the
 published finding that post-earnings drift has mostly disappeared outside small, illiquid stocks.
 
-**US commodity futures (C1): the China signals don't carry over.** I took the same
-continuous-contract code and the same monthly test and ran them on 24 CME commodity futures:
-energy, metals, grains and livestock. Prices are CME's official settlements, 2016–2026, from
-Databento. Two US-only signals were added:
-- basis-momentum (Boons & Prado 2019);
-- hedging pressure from the CFTC positioning reports (Basu & Miffre 2013).
-
-The protocol was committed before the first run. That includes one amendment: CME open-interest
-history starts in November 2015, which is why the sample begins in 2016.
-
-| Signal | US net Sharpe (h1 / h2) | q (all trials) | China net Sharpe |
-|---|---|---|---|
-| 1-month trend (TS1) | 0.41 (0.42 / 0.39) | 0.12 | 0.66 |
-| 12-month trend (TS12) | 0.33 (0.15 / 0.53) | 0.18 | 0.60 |
-| Basis-momentum | 0.32 (−0.33 / 0.77) | 0.20 | — |
-| 63-day rank momentum | 0.31 (0.30 / 0.32) | 0.20 | 0.61 |
-| Donchian breakout | 0.19 (0.37 / −0.01) | 0.31 | 0.53 |
-| 20/60 moving average | 0.09 (0.16 / −0.00) | 0.43 | 0.59 |
-| Hedging pressure | −0.05 (−0.02 / −0.07) | 0.60 | — |
-| Carry | −0.11 (−0.72 / 0.42) | 0.68 | 0.30 |
-
-None clears the bar of q ≤ 0.10 and positive in both halves.
-- **Trend:** positive in the US, but about half as strong as in China. Ten years of monthly
-  returns can't tell a 0.3–0.4 Sharpe apart from luck. The four trend signals are also largely
-  one bet: their returns correlate 0.4–0.9.
-- **Carry:** the best-documented commodity factor lost money. In spring 2020 it was short crude,
-  gasoline and heating oil at peak contango, and those then rallied 19–45% in May.
-- **Costs:** doubling them to 6 bps per side barely changes anything.
-
-
 The futures pipeline is a pandas port of a DolphinDB research lab and is checked against it:
 `research/reconcile_futures.py` shows the continuous-contract panel (157,395 rows) and the
 daily P&L of all six ported futures strategies identical to floating-point precision.
@@ -249,6 +317,9 @@ daily P&L of all six ported futures strategies identical to floating-point preci
   the API enabled (Global Configuration > API > Settings), needed for the `paper` command
 - A Nasdaq Data Link (Sharadar) API key for the point-in-time data. Some commands still
   work without one, using free data instead. See `ARCHITECTURE.md`, Chapter 5.
+- For US commodity futures: a Databento API key (`DATABENTO_API_KEY`). Every pull quotes its
+  cost first and refuses to run above a cap. The CFTC reports are free. Databento data is
+  licensed, so it stays in the gitignored `data/cache/` and is not in this repo.
 
 ## Setup
 
@@ -292,6 +363,9 @@ python main.py altdata                           # test insider/institutional si
 python main.py strategy vol_managed_momentum     # backtest, walk-forward, and overfitting checks
 python main.py report                            # regenerate reports/ (tables + charts), ~10 min
 python main.py evaluate us_equity                # every registered signal, logged to research/trials.jsonl
+python main.py evaluate us_futures --family us_futures_c1 --protocol b11-c1-v1   # C1, US commodity futures
+python -m research.cross_market                  # China vs US on the same years, writes reports/cross_market.png
+python -m data.pull_databento --quote stats      # price a Databento pull (free metadata call) before running it
 python main.py alpha us_equity                   # walk-forward signal combinations, logged as trials
 python main.py design us_equity                  # P3 design space + walk-forward selector (~15 min)
 python main.py allocate                          # P5: combine books + leverage dial (~15 min)
@@ -368,8 +442,12 @@ See `ARCHITECTURE.md`'s "Map of the repository" for what each file does.
 
 ## Status
 
-Complete as a research and validation platform. Every command under "Running" works end
-to end, offline, against the local Sharadar cache, and every result quoted in this README
-is regenerated by `main.py report`. The strategy itself is not good enough to trade with
-real money, which is the finding, not a gap. See `ARCHITECTURE.md`'s "Honest limitations"
-for what the system cannot do.
+Complete as a research and validation platform across three markets: US stocks, Chinese
+commodity futures and US commodity futures. Every command under "Running" works end to end
+offline against local caches. Every result in this README comes from a committed script and
+is logged in `research/trials.jsonl`, failures included.
+
+Nothing here trades real money. The honest summary: Chinese commodity trend is the one family
+that survives every check, US commodity factors don't, and the equity momentum strategy is real
+but too small to trade. See `ARCHITECTURE.md`'s "Honest limitations" for what the system
+cannot do.
