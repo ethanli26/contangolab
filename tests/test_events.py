@@ -108,3 +108,11 @@ def test_a_planted_drift_after_events_shows_up_as_excess_return():
     bench = simulate(universe_targets(ds, grid), close.pct_change(fill_method=None), 0.0)["net"]
     out = run_signal("planted", ev, ds, grid, bench, published=None)["result"]
     assert out["ann_return"] > 0.10 and out["t_stat"] > 2
+
+
+def test_universe_benchmark_holds_cash_before_any_name_is_eligible():
+    close = pd.DataFrame(100.0, index=DAYS[:20], columns=["A", "B"])
+    ds = _ds(close)
+    ds.eligible.iloc[:10] = False                                         # no stock has enough history yet
+    targets = universe_targets(ds, pd.DatetimeIndex([DAYS[5], DAYS[15]]))
+    assert targets[DAYS[5]].empty and targets[DAYS[15]].sum() == pytest.approx(1.0)

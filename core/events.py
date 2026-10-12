@@ -72,7 +72,7 @@ def universe_targets(ds: Dataset, grid: pd.DatetimeIndex) -> dict:
     out = {}
     for t in grid:
         names = elig.columns[elig.loc[t].to_numpy(dtype=bool) & ds.close.loc[t].notna().to_numpy()]
-        out[t] = pd.Series(1.0 / len(names), index=names)
+        out[t] = pd.Series(1.0 / len(names), index=names) if len(names) else pd.Series(dtype=float)
     return out
 
 
