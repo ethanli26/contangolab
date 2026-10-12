@@ -107,7 +107,7 @@ flowchart TD
 ## Platform core: any signal, any asset class
 
 The project is growing from one strategy into a multi-asset research platform (US stocks,
-China commodity futures, A-shares next). Five shared drivers in `core/` make that possible:
+China commodity futures, A-shares next). Six shared drivers in `core/` make that possible:
 
 | Driver | What it does |
 |---|---|
@@ -115,12 +115,14 @@ China commodity futures, A-shares next). Five shared drivers in `core/` make tha
 | `core/signals.py` | One registry for every factor: its source, family, publication year, and the direction the source predicts, all fixed *before* it is tested |
 | `core/evaluate.py` | The same monthly test for every signal: rank IC plus a cost-aware long-short, split by halves and before/after publication |
 | `core/alpha.py` | Combines all of an asset class's signals into one score, fit walk-forward only: equal weight, IC-weighted, ridge, XGBoost |
+| `core/portfolio.py` + `core/design.py` | Turns a score into a book (long-short, long-only top-N, time-series; buffer, sector-neutral, vol target), simulates it with drifting holdings and costs, and searches the design space with a walk-forward selector |
 | `core/trials.py` | An append-only log of every test ever run (`research/trials.jsonl`, committed), with Benjamini-Hochberg multiple-testing correction computed from it |
 
 ```
 python main.py evaluate cn_futures        # every registered futures signal, logged and corrected
 python main.py evaluate us_equity         # every registered US equity factor
 python main.py alpha us_equity            # walk-forward combinations vs the best single signal
+python main.py design us_equity           # every pre-registered portfolio configuration + the selector
 ```
 
 Testing hundreds of factors guarantees some false positives, so nothing counts as a finding
@@ -144,6 +146,26 @@ signal chosen in hindsight. XGBoost is the steadiest US combination but doesn't 
 the best single factor. IC-weighting and ridge likely underperform because a high IC doesn't
 mean high profit after costs: low-volatility and idiosyncratic-volatility factors have the highest
 US rank ICs but weak net long-short returns.
+
+**Portfolio construction: 160 configurations, judged by a selector that only sees the past.**
+Each configuration is one choice per layer: score source × portfolio type × sector-neutral or
+not × turnover buffer (or rebalance speed) × vol target. All 160 were run and logged. The
+number that counts comes from a selector that switches each year to whichever configuration
+has the best record *so far*, measured on months it hadn't seen. The bar was written down
+before the first run: the selector must beat the plain default in both halves, and PBO must
+be ≤ 0.5.
+
+| Track (OOS window) | Plain default | Walk-forward selector | PBO | Verdict |
+|---|---|---|---|---|
+| US long-short (2002–2026) | 0.26 | **0.83** (1.02 / 0.63 by half) | 0.00 | **selector adopted**: XGBoost score, sector-neutral, vol-targeted |
+| US long-only (2002–2026) | **0.72** (universe: 0.49) | 0.73 (0.72 / 0.741 vs 0.743) | 0.13 | plain default kept: equal-weight score, top 50 |
+| China futures (2015–2026) | **0.70** | 0.74 (1.16 / 0.35) | 0.59 | plain default kept: equal-weight score, time-series, monthly |
+
+Simple won two of three tracks. Averaging every signal beat choosing among them in long-only
+US and in futures. The one place complexity paid is the US long-short book, where XGBoost
+plus sector neutrality plus a vol target holds up out of sample. That book can't go in a cash
+account: it needs shorting, and borrow and financing costs are not modeled yet.
+
 
 The futures pipeline is a pandas port of a DolphinDB research lab and is checked against it:
 `research/reconcile_futures.py` shows the continuous-contract panel (157,395 rows) and the
@@ -191,7 +213,7 @@ daily P&L of all six ported futures strategies identical to floating-point preci
 
 ## Running
 
-`main.py` is the single entry point, with seven subcommands:
+`main.py` is the single entry point, with eight subcommands:
 
 ```
 python main.py factors                          # test each factor for predictive power
@@ -200,6 +222,7 @@ python main.py strategy vol_managed_momentum     # backtest, walk-forward, and o
 python main.py report                            # regenerate reports/ (tables + charts), ~10 min
 python main.py evaluate us_equity                # every registered signal, logged to research/trials.jsonl
 python main.py alpha us_equity                   # walk-forward signal combinations, logged as trials
+python main.py design us_equity                  # P3 design space + walk-forward selector (~15 min)
 python main.py paper vol_managed_momentum        # one monthly paper rebalance (needs TWS/IB Gateway)
 ```
 
