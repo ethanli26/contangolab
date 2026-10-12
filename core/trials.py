@@ -34,9 +34,9 @@ def _git_commit() -> str:
     try:
         head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=REPO, capture_output=True,
                               text=True, check=True).stdout.strip()
-        dirty = subprocess.run(["git", "status", "--porcelain"], cwd=REPO, capture_output=True,
-                               text=True, check=True).stdout.strip()
-        return head + ("-dirty" if dirty else "")
+        dirty = subprocess.run(["git", "status", "--porcelain", "--", ".", f":!{TRIALS_PATH.relative_to(REPO)}"],
+                               cwd=REPO, capture_output=True, text=True, check=True).stdout.strip()
+        return head + ("-dirty" if dirty else "")      # the log itself changing is not a dirty tree
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
 

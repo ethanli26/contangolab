@@ -107,22 +107,43 @@ flowchart TD
 ## Platform core: any signal, any asset class
 
 The project is growing from one strategy into a multi-asset research platform (US stocks,
-China commodity futures, A-shares next). Four shared drivers in `core/` make that possible:
+China commodity futures, A-shares next). Five shared drivers in `core/` make that possible:
 
 | Driver | What it does |
 |---|---|
 | `core/dataset.py` | One `Dataset` per asset class: price panels, a point-in-time investable universe, trading costs |
 | `core/signals.py` | One registry for every factor: its source, family, publication year, and the direction the source predicts, all fixed *before* it is tested |
 | `core/evaluate.py` | The same monthly test for every signal: rank IC plus a cost-aware long-short, split by halves and before/after publication |
+| `core/alpha.py` | Combines all of an asset class's signals into one score, fit walk-forward only: equal weight, IC-weighted, ridge, XGBoost |
 | `core/trials.py` | An append-only log of every test ever run (`research/trials.jsonl`, committed), with Benjamini-Hochberg multiple-testing correction computed from it |
 
 ```
 python main.py evaluate cn_futures        # every registered futures signal, logged and corrected
 python main.py evaluate us_equity         # every registered US equity factor
+python main.py alpha us_equity            # walk-forward combinations vs the best single signal
 ```
 
 Testing hundreds of factors guarantees some false positives, so nothing counts as a finding
 unless it survives correction over *everything* in the log, including the failures.
+
+**First alpha-model result: no combination passed.** The bar, written down before the first run:
+a combination's out-of-sample Sharpe must beat the best single signal *and* the equal-weight
+blend in each half of the test period, with the best single picked after the fact in each half.
+
+| Out-of-sample net Sharpe | US stocks, 24 signals (2001–2026) | China futures, 6 signals (2013–2026) |
+|---|---|---|
+| Equal weight | 0.30 | **0.77** |
+| IC-weighted | 0.21 | 0.53 |
+| Ridge | 0.24 | 0.60 |
+| XGBoost | **0.53** (0.52 / 0.53 by half) | 0.49 |
+| Best single signal (whole period) | 0.55 (FCF yield) | 0.66 (RANK63) |
+| Best single, chosen per half | 0.99 / 0.73 | 0.76 / 0.80 |
+
+Equal weight is the best futures portfolio overall but loses the second half to a trend
+signal chosen in hindsight. XGBoost is the steadiest US combination but doesn't beat
+the best single factor. IC-weighting and ridge likely underperform because a high IC doesn't
+mean high profit after costs: low-volatility and idiosyncratic-volatility factors have the highest
+US rank ICs but weak net long-short returns.
 
 The futures pipeline is a pandas port of a DolphinDB research lab and is checked against it:
 `research/reconcile_futures.py` shows the continuous-contract panel (157,395 rows) and the
@@ -170,7 +191,7 @@ daily P&L of all six ported futures strategies identical to floating-point preci
 
 ## Running
 
-`main.py` is the single entry point, with six subcommands:
+`main.py` is the single entry point, with seven subcommands:
 
 ```
 python main.py factors                          # test each factor for predictive power
@@ -178,6 +199,7 @@ python main.py altdata                           # test insider/institutional si
 python main.py strategy vol_managed_momentum     # backtest, walk-forward, and overfitting checks
 python main.py report                            # regenerate reports/ (tables + charts), ~10 min
 python main.py evaluate us_equity                # every registered signal, logged to research/trials.jsonl
+python main.py alpha us_equity                   # walk-forward signal combinations, logged as trials
 python main.py paper vol_managed_momentum        # one monthly paper rebalance (needs TWS/IB Gateway)
 ```
 
