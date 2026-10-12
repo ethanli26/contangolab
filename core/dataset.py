@@ -77,3 +77,18 @@ def load_cn_futures(source_dir: str | None = None) -> Dataset:
     return Dataset("cn_futures", data, eligible, cost_bps_per_side=config.FUTURES_COST_BPS_PER_SIDE, groups=5,
                    description="China commodity futures (SHFE/DCE/CZCE/INE/GFEX), main-contract continuous, "
                                "liquid universe", meta={"px": px})
+
+
+@register_loader("us_futures")
+def load_us_futures(source_dir: str | None = None) -> Dataset:
+    """US commodity futures (CME Group), continuous by the China rules, plus CFTC hedging pressure."""
+    from data.cftc import attach, load_cot
+    from data.futures_cn import to_factor_data
+    from data.futures_us import load_continuous
+
+    px = attach(load_continuous(source_dir), load_cot())
+    data, eligible, extra = to_factor_data(px)
+    data.extra = {**extra, "uni": eligible}
+    return Dataset("us_futures", data, eligible, cost_bps_per_side=config.FUTURES_COST_BPS_PER_SIDE, groups=5,
+                   description="US commodity futures (NYMEX/COMEX/CBOT/CME), main-contract continuous, "
+                               "liquid universe", meta={"px": px})

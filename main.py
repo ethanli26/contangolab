@@ -209,16 +209,16 @@ def cmd_evaluate(args) -> int:
     for spec in specs:
         result, _ = evaluate(spec, ds)
         if not args.dry_run:
-            log_trial(result, note=args.note)
+            log_trial(result, protocol=args.protocol, note=args.note)
         log.info("%-28s IC %+.4f  net Sharpe %+.2f  t %+.2f  (%d months)", spec.name, result["mean_ic"] or 0,
                  result["sharpe"] or 0, result["t_stat"] or 0, result["months"])
     if args.dry_run:
         return 0
-    table = correction_table(load_trials())
+    table = correction_table(load_trials(), protocol=PROTOCOL if args.protocol == PROTOCOL else None)
     table = table[table["asset_class"] == args.asset_class]
     cols = ["signal", "family", "months", "mean_ic", "ic_t", "ann_return", "sharpe", "t_stat", "q_family", "q_all",
             "survivor"]
-    print(f"\n=== {args.asset_class}: latest trial per signal, protocol {PROTOCOL} "
+    print(f"\n=== {args.asset_class}: latest trial per signal, protocol {args.protocol} "
           f"(q = Benjamini-Hochberg over every logged signal) ===")
     print(table[cols].to_string(index=False, float_format=lambda v: f"{v:.3f}"))
     return 0
@@ -492,11 +492,13 @@ def build_parser() -> argparse.ArgumentParser:
     # Evaluate registered signals on an asset class and log every trial (core/).
     eval_parser = subparsers.add_parser(
         "evaluate", help="evaluate registered signals for an asset class; every run is logged to research/trials.jsonl")
-    eval_parser.add_argument("asset_class", help="us_equity or cn_futures")
+    eval_parser.add_argument("asset_class", help="us_equity, cn_futures or us_futures")
     eval_parser.add_argument("--family", default=None, help="only signals of this family")
     eval_parser.add_argument("--signal", nargs="*", default=None, help="only these signals")
     eval_parser.add_argument("--note", default="", help="free-text note stored with each trial")
     eval_parser.add_argument("--dry-run", action="store_true", help="evaluate without logging trials")
+    eval_parser.add_argument("--protocol", default="b11-p1b-v1",
+                             help="protocol tag logged with each trial (a non-P1b tag corrects over all protocols)")
     eval_parser.set_defaults(func=cmd_evaluate)
     # Combine signals into one alpha score, walk-forward (core/alpha.py).
     alpha_parser = subparsers.add_parser(

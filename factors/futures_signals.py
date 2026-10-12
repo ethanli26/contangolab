@@ -109,6 +109,19 @@ def carry(px: pd.DataFrame) -> pd.Series:
     return _in_universe(px, px["ry"])
 
 
+def basis_momentum(px: pd.DataFrame) -> pd.Series:
+    """Basis-momentum (Boons & Prado 2019): 12-month return of the held (nearby) contract minus that of
+    the next expiry, as the average daily log-return difference over 252 rows."""
+    diff = np.log1p(px["ret"]) - np.log1p(px["farRet"])
+    return _in_universe(px, rolling_rows(diff, px["sym"], 252, "mean"))
+
+
+def hedging_pressure(px: pd.DataFrame) -> pd.Series:
+    """Hedging pressure (Basu & Miffre 2013): 26-week average share of producer/merchant positions that
+    are short (CFTC, usable a week after the as-of date); needs the ``hp26`` column from data.cftc."""
+    return _in_universe(px, px["hp26"])
+
+
 @dataclass(frozen=True)
 class FuturesSignal:
     name: str
@@ -127,3 +140,9 @@ SIGNALS: dict[str, FuturesSignal] = {s.name: s for s in [
     FuturesSignal("RANK63", "cross_sectional", +1, 0, "东方 78 稳健动量 RANK(6,3)", rank63),
     FuturesSignal("CARRY", "cross_sectional", +1, 0, "华泰 CTA 七; Koijen et al. (2018)", carry),
 ]}
+
+# US commodity replication (protocol b11-c1-v1): the six above plus two that need US-only inputs.
+US_SIGNALS: dict[str, FuturesSignal] = {**SIGNALS, **{s.name: s for s in [
+    FuturesSignal("BASISMOM", "cross_sectional", +1, 0, "Boons & Prado (2019)", basis_momentum),
+    FuturesSignal("HEDGEP", "cross_sectional", +1, 0, "Basu & Miffre (2013)", hedging_pressure),
+]}}
