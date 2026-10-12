@@ -70,7 +70,7 @@ def past_scaled(panel: pd.DataFrame) -> pd.DataFrame:
 @dataclass
 class Panels:
     """Month-end inputs for the combination: one feature matrix and label per month."""
-    dates: pd.DatetimeIndex                     # month-ends that have a following month-end
+    dates: pd.DatetimeIndex                     # grid dates that have a following grid date
     names: list[str]
     X: list[np.ndarray]                         # per month: eligible assets x features
     y: list[np.ndarray]                         # per month: label (NaN if not realized)
@@ -78,9 +78,11 @@ class Panels:
     raw: dict[str, pd.DataFrame] = field(default_factory=dict)   # month-end signal values, unsigned
 
 
-def build_panels(specs: list[SignalSpec], ds: Dataset, combo_kind: str) -> Panels:
+def build_panels(specs: list[SignalSpec], ds: Dataset, combo_kind: str,
+                 rebal: pd.DatetimeIndex | None = None) -> Panels:
+    """Features and labels on a rebalance grid (default: month-ends); the label runs to the next grid date."""
     close = ds.close
-    rebal = month_ends(close.index)
+    rebal = month_ends(close.index) if rebal is None else rebal
     dates = rebal[:-1]
     elig = ds.eligible.reindex(index=dates, columns=close.columns).fillna(False).astype(bool)
 

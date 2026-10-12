@@ -16,6 +16,9 @@ is changed here:
               evaluator (core/), logging each trial to research/trials.jsonl.
   alpha     — combine an asset class's signals into one score, walk-forward (ew, IC-weighted,
               ridge, XGBoost), judged against the best single signal (core/alpha.py).
+  design    — P3 design space: every pre-registered configuration of score source x
+              construction x neutralization x turnover x vol target, plus the walk-forward
+              selector that is judged against the simple default (core/design.py).
   report    — regenerate reports/ (RESULTS.md, results.json, charts): the source of
               every number the README quotes.
 
@@ -30,6 +33,7 @@ alpha.
     python main.py paper vol_managed_momentum --no-broker
     python main.py evaluate cn_futures
     python main.py alpha cn_futures
+    python main.py design cn_futures
     python main.py report
 """
 
@@ -245,6 +249,76 @@ def cmd_alpha(args) -> int:
     return 0
 
 
+def _sectors() -> pd.Series:
+    """Ticker -> Sharadar sector (current classification; a mild look-ahead noted in the P3 protocol)."""
+    from data.sharadar_provider import BULK_DIR
+
+    t = pd.read_parquet(BULK_DIR / "TICKERS.parquet", columns=["table", "ticker", "sector"])
+    t = t[t["table"] == "SEP"].dropna(subset=["sector"]).drop_duplicates("ticker", keep="last")
+    return t.set_index("ticker")["sector"]
+
+
+def _print_design(out: dict) -> None:
+    def fmt(st: dict) -> str:
+        return (f"Sharpe {st['sharpe']:+.2f}  CAGR {st['cagr']:+.1%}  vol {st['ann_vol']:.1%}  maxDD {st['max_dd']:.1%}"
+                if st.get("sharpe") is not None else "n/a")
+
+    first, last, n = out["window"]
+    print(f"\n=== {out['track']}: {out['configs']} configurations, protocol b11-p3-v1 ===")
+    print(f"selector OOS window {first.date()} .. {last.date()} ({n} months)")
+    cols = ["sharpe", "cagr", "ann_vol", "max_dd", "avg_turnover", "months"]
+    print("\ntop 10 configurations by full-history net Sharpe (hindsight, for reference only):")
+    print(out["table"][cols].astype(float).sort_values("sharpe", ascending=False).head(10)
+          .to_string(float_format=lambda v: f"{v:+.3f}"))
+    print(f"\nsimple default  {out['simple']}\n  window: {fmt(out['simple_stats'])}")
+    print("  halves: " + " | ".join(fmt(h) for h in out["simple_halves"]))
+    print(f"selector\n  window: {fmt(out['selector_stats'])}")
+    print("  halves: " + " | ".join(fmt(h) for h in out["selector_halves"]))
+    if "benchmark_stats" in out:
+        print(f"equal-weight PIT universe\n  window: {fmt(out['benchmark_stats'])}")
+        print("  halves: " + " | ".join(fmt(h) for h in out["benchmark_halves"]))
+        print(f"  selector beats the universe in both halves: {out['edge_vs_benchmark']}")
+    pbo = out["pbo"]
+    print(f"PBO over the grid: {pbo:.2f}" if pbo is not None else "PBO: n/a")
+    d = out["dsr"]
+    print(f"hindsight best {out['hindsight_best']}: Sharpe {d['sharpe_annualized']:+.2f}, luck bar "
+          f"{d['sr0_annualized']:.2f} over {d['n_trials']} configs, DSR {d['dsr']:.2f}")
+    print("selector picks: " + "; ".join(f"{t.date()} {c.split('|', 1)[1]}" for t, c in out["picks"]))
+    v = out["verdict"]
+    print(f"VERDICT: adopt {v['adopt']} ({v['reason']})")
+
+
+def cmd_design(args) -> int:
+    """Run every pre-registered P3 configuration for an asset class's tracks; log each; apply the bar."""
+    from backtest.walkforward import universe_equal_weight_returns
+    from core.dataset import load_dataset
+    from core.design import PROTOCOL, TRACKS, prepare, run_track, trial_records
+    from core.signals import signals
+    from core.trials import log_trial
+
+    tracks = [t for t in TRACKS.values() if t.asset_class == args.asset_class]
+    if not tracks:
+        log.error("No P3 tracks for %s.", args.asset_class)
+        return 1
+    log.info("Loading %s and preparing features, XGBoost scores and single-signal histories...", args.asset_class)
+    ds = load_dataset(args.asset_class)
+    ctx = prepare(ds, signals(args.asset_class), weekly=any("weekly" in t.turnover for t in tracks),
+                  sectors=_sectors() if args.asset_class == "us_equity" else None)
+    out_dir = Path(__file__).resolve().parent / "research" / "output"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for track in tracks:
+        log.info("Running track %s...", track.name)
+        bench = universe_equal_weight_returns(ds.data, ds.eligible) if track.name == "us_lo" else None
+        out = run_track(ctx, track, bench)
+        if not args.dry_run:
+            for rec in trial_records(out, track, ds):
+                log_trial(rec, protocol=PROTOCOL, note=args.note)
+        _print_design(out)
+        out["matrix"].to_csv(out_dir / f"design_{track.name}.csv")
+        out["selector"].rename("selector").to_csv(out_dir / f"design_{track.name}_selector.csv")
+    return 0
+
+
 def cmd_report(args) -> int:
     """Regenerate reports/ (RESULTS.md, results.json, charts) from the local archive."""
     from research.report import main as report_main
@@ -258,7 +332,7 @@ def cmd_paper(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """CLI with the seven subcommands."""
+    """CLI with the eight subcommands."""
     parser = argparse.ArgumentParser(prog="main.py", description="pit-backtester — integrated entry point.")
     subparsers = parser.add_subparsers(dest="command", required=True)
     for name, func, help_text in [
@@ -288,6 +362,13 @@ def build_parser() -> argparse.ArgumentParser:
     alpha_parser.add_argument("--note", default="", help="free-text note stored with each trial")
     alpha_parser.add_argument("--dry-run", action="store_true", help="run without logging trials")
     alpha_parser.set_defaults(func=cmd_alpha)
+    # P3 design space + walk-forward selector (core/design.py).
+    design_parser = subparsers.add_parser(
+        "design", help="run every pre-registered P3 configuration; judge the walk-forward selector vs the simple default")
+    design_parser.add_argument("asset_class", help="us_equity (tracks us_ls, us_lo) or cn_futures (track fut)")
+    design_parser.add_argument("--note", default="", help="free-text note stored with each trial")
+    design_parser.add_argument("--dry-run", action="store_true", help="run without logging trials")
+    design_parser.set_defaults(func=cmd_design)
     # Monthly paper rebalance for a portfolio strategy (existing DU + DRY_RUN + gate path).
     paper_parser = subparsers.add_parser(
         "paper", help="run one monthly paper rebalance for a portfolio strategy")
