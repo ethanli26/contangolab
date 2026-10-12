@@ -9,9 +9,11 @@ redistributable.
   financials   ohlcv-1d for FIN_ROOTS (equity index, Treasuries, FX), a cross-asset reference
   stats        statistics schema for the commodity OUTRIGHTS only (settlement price, open
                interest, cleared volume), one request per root, filtered to those stat types
-  ng_intraday  1-minute bars of the first two natural-gas contracts (NG.c.0, NG.c.1), 14:00-16:30
+  ng_intraday  1-minute bars of the first two natural-gas contracts (NG.c.0, NG.c.1), 14:00-18:00
                UTC on every Tue-Fri: brackets the 10:30 ET EIA storage release in both EST and
-               EDT, including holiday-shifted release days
+               EDT, including holiday-shifted days and the occasional 12:00 ET release
+  lng_bench    ohlcv-1d for the CME-listed overseas gas benchmarks (Dutch TTF, Platts JKM): the
+               export arbitrage that decides whether US LNG cargoes lift
 
     python -m data.pull_databento daily stats      # run jobs
     python -m data.pull_databento --quote stats    # quote only
@@ -29,11 +31,13 @@ ROOTS = ["CL", "HO", "RB", "NG", "BZ",            # energy (NYMEX)
          "ZC", "ZW", "KE", "ZS", "ZM", "ZL", "ZO",  # grains and oilseeds (CBOT)
          "LE", "HE", "GF"]                        # livestock (CME)
 EXTRA_ROOTS = ["ZR", "DC", "LBS", "LBR"]
+LNG_ROOTS = ["TTF", "JKM"]
 FIN_ROOTS = ["ES", "NQ", "ZT", "ZF", "ZN", "ZB", "6E", "6J", "6B", "6A", "6C"]
 START, END = "2010-06-06", "2026-10-10"
 OUTRIGHT = r"[A-Z]{2,3}[FGHJKMNQUVXZ]\d{1,2}"
 STAT_TYPES = {3: "settlement", 6: "cleared_volume", 9: "open_interest"}
-CAPS = {"daily": 60.0, "daily_extra": 5.0, "financials": 5.0, "stats": 15.0, "ng_intraday": 5.0}
+CAPS = {"daily": 60.0, "daily_extra": 5.0, "financials": 5.0, "stats": 15.0, "ng_intraday": 8.0,
+        "lng_bench": 1.0}
 OUT = Path(__file__).resolve().parent / "cache" / "futures_us"
 
 
@@ -59,7 +63,7 @@ def _outrights(root: str) -> list[str]:
 def _ng_windows() -> list[tuple[str, str]]:
     days = pd.bdate_range(START, END)
     days = days[days.dayofweek.isin([1, 2, 3, 4])]
-    return [(f"{d.date()}T14:00", f"{d.date()}T16:30") for d in days]
+    return [(f"{d.date()}T14:00", f"{d.date()}T18:00") for d in days]
 
 
 def _requests(job: str) -> list[dict]:
@@ -69,6 +73,8 @@ def _requests(job: str) -> list[dict]:
         return [_parent(EXTRA_ROOTS, "ohlcv-1d")]
     if job == "financials":
         return [_parent(FIN_ROOTS, "ohlcv-1d")]
+    if job == "lng_bench":
+        return [_parent(LNG_ROOTS, "ohlcv-1d")]
     if job == "stats":
         return [dict(dataset=DATASET, symbols=_outrights(r), schema="statistics", stype_in="raw_symbol",
                      start=START, end=END) for r in ROOTS + EXTRA_ROOTS if _outrights(r)]
@@ -89,8 +95,9 @@ def quote(client, job: str) -> float:
 def run(client, job: str) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     reqs = _requests(job)
-    if job in ("daily", "daily_extra", "financials"):
-        name = {"daily": "ohlcv_1d", "daily_extra": "ohlcv_1d_extra", "financials": "ohlcv_1d_fin"}[job]
+    if job in ("daily", "daily_extra", "financials", "lng_bench"):
+        name = {"daily": "ohlcv_1d", "daily_extra": "ohlcv_1d_extra", "financials": "ohlcv_1d_fin",
+                "lng_bench": "ohlcv_1d_lng"}[job]
         df = client.timeseries.get_range(**reqs[0], path=OUT / f"{name}.dbn.zst").to_df()
         df.to_parquet(OUT / f"{name}.parquet")
         print(f"{name}: {len(df):,} rows, {df['symbol'].nunique():,} symbols")
@@ -105,15 +112,24 @@ def run(client, job: str) -> None:
         out.to_parquet(OUT / "statistics.parquet")
         print(f"statistics: {len(out):,} rows")
     elif job == "ng_intraday":
-        parts = []
-        for k, r in enumerate(reqs):
+        from concurrent.futures import ThreadPoolExecutor
+
+        def one(r):
             df = client.timeseries.get_range(**r).to_df()
-            if len(df):
-                parts.append(df[["symbol", "open", "high", "low", "close", "volume"]].assign(
-                    contract=df["symbol"], symbol=df["instrument_id"].astype(str)))
-            if k % 250 == 0:
-                print(f"  {k}/{len(reqs)} windows")
-        out = pd.concat(parts)
+            return df[["symbol", "instrument_id", "open", "high", "low", "close", "volume"]].rename(
+                columns={"symbol": "series"}) if len(df) else None         # series = NG.c.0 / NG.c.1
+
+        part_dir = OUT / "ng_1m_parts"
+        part_dir.mkdir(exist_ok=True)
+        for year in sorted({r["start"][:4] for r in reqs}):
+            path = part_dir / f"{year}.parquet"
+            if path.exists():                                        # resumable: a finished year is not re-billed
+                continue
+            with ThreadPoolExecutor(8) as pool:
+                parts = [p for p in pool.map(one, [r for r in reqs if r["start"].startswith(year)]) if p is not None]
+            pd.concat(parts).to_parquet(path)
+            print(f"  {year}: {sum(len(p) for p in parts):,} rows")
+        out = pd.concat(pd.read_parquet(f) for f in sorted(part_dir.glob("*.parquet")))
         out.to_parquet(OUT / "ng_1m_release_windows.parquet")
         print(f"ng_intraday: {len(out):,} rows")
 

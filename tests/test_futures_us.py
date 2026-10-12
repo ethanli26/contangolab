@@ -41,6 +41,14 @@ def test_contract_bars_use_final_settlements_and_see_open_interest_one_day_late(
     assert bars.loc[d1, "high"] == 53.0 and bars.loc[d2, "high"] == 52.0   # no trades: range = settlement
 
 
+def test_settlements_without_a_final_flag_fall_back_to_the_last_published():
+    stats = _stats([("2012-06-14", "CLZ2", 3, 85.30, 0, 4, 1), ("2012-06-14", "CLZ2", 3, 85.39, 0, 0, 1),
+                    ("1970-01-01", "CLZ2", 3, 1.0, 0, 3, 1)])                # epoch ts_ref = undefined: dropped
+    bars = contract_bars(stats, pd.DataFrame(columns=["open", "high", "low", "symbol"],
+                                             index=pd.DatetimeIndex([], tz="UTC")))
+    assert bars["close"].tolist() == [85.39] and bars["sym"].tolist() == ["CL1212"]
+
+
 def _cot_zip(tmp_path, rows):
     df = pd.DataFrame(rows, columns=["Report_Date_as_YYYY-MM-DD", "CFTC_Contract_Market_Code",
                                      "Prod_Merc_Positions_Long_All", "Prod_Merc_Positions_Short_All"])

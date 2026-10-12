@@ -14,6 +14,9 @@ Inputs (``data/cache/futures_us/``, written by ``data.pull_databento``):
 US-specific choices, fixed before any backtest:
   * close = the FINAL settlement price of the trade date. All contracts settle at the same time,
     so carry compares like with like (last-trade prices of thin back months can be stale).
+    CME's feed only flags settlements final from ~2016-17; before that (flags 0 or 4) the close
+    is the last settlement published for the trade date. Where both exist (1.61M contract-days,
+    2017-06 on) the last published equals the final one 100.0% of the time.
   * open interest for trade date t arrives that evening (preliminary) and is revised the next
     morning, so the loader sees each contract's OI one trading day late (the main chosen at the
     close of t uses OI of t-1).
@@ -61,10 +64,14 @@ def expiry_key(symbol: pd.Series, trade_date: pd.Series) -> pd.DataFrame:
 
 def contract_bars(stats: pd.DataFrame, ohlcv: pd.DataFrame) -> pd.DataFrame:
     """Databento records -> ``build_continuous`` input: date, sym (root + yymm), open/high/low/close, volume, oi."""
-    st = stats[stats["update_action"] == NEW]
+    st = stats[(stats["update_action"] == NEW) & (pd.to_datetime(stats["ts_ref"]) > pd.Timestamp(0, tz="UTC"))]
+    st = st.sort_index(kind="stable")                                    # ts_recv: arrival order
     st = st.assign(date=pd.to_datetime(st["ts_ref"]).dt.tz_localize(None).dt.normalize())
-    settle = st[(st["stat_type"] == SETTLEMENT) & ((st["stat_flags"] & FINAL_FLAG) > 0)]
-    settle = settle.drop_duplicates(["date", "symbol"], keep="last").set_index(["date", "symbol"])["price"]
+    settles = st[st["stat_type"] == SETTLEMENT]
+    final = settles[(settles["stat_flags"] & FINAL_FLAG) > 0]
+    final = final.drop_duplicates(["date", "symbol"], keep="last").set_index(["date", "symbol"])["price"]
+    latest = settles.drop_duplicates(["date", "symbol"], keep="last").set_index(["date", "symbol"])["price"]
+    settle = final.combine_first(latest)
     oi = st[st["stat_type"] == OPEN_INTEREST].drop_duplicates(["date", "symbol"], keep="last")
     oi = oi.set_index(["date", "symbol"])["quantity"]
     vol = st[st["stat_type"] == CLEARED_VOLUME].drop_duplicates(["date", "symbol"], keep="last")

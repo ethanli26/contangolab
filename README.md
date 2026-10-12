@@ -107,7 +107,7 @@ flowchart TD
 ## Platform core: any signal, any asset class
 
 The project is growing from one strategy into a multi-asset research platform (US stocks,
-China commodity futures, A-shares next). Seven shared drivers in `core/` make that possible:
+China and US commodity futures). Seven shared drivers in `core/` make that possible:
 
 | Driver | What it does |
 |---|---|
@@ -207,6 +207,35 @@ immediately: the top deciles drift to about zero. Insider buying shows up as a +
 day after the filing, which a weekly rebalance can't catch. Bad news still drifts (bottom
 deciles −1.2% over three months), but profiting from that requires shorting. This matches the
 published finding that post-earnings drift has mostly disappeared outside small, illiquid stocks.
+
+**US commodity futures (C1): the China signals don't carry over.** I took the same
+continuous-contract code and the same monthly test and ran them on 24 CME commodity futures:
+energy, metals, grains and livestock. Prices are CME's official settlements, 2016–2026, from
+Databento. Two US-only signals were added:
+- basis-momentum (Boons & Prado 2019);
+- hedging pressure from the CFTC positioning reports (Basu & Miffre 2013).
+
+The protocol was committed before the first run. That includes one amendment: CME open-interest
+history starts in November 2015, which is why the sample begins in 2016.
+
+| Signal | US net Sharpe (h1 / h2) | q (all trials) | China net Sharpe |
+|---|---|---|---|
+| 1-month trend (TS1) | 0.41 (0.42 / 0.39) | 0.12 | 0.66 |
+| 12-month trend (TS12) | 0.33 (0.15 / 0.53) | 0.18 | 0.60 |
+| Basis-momentum | 0.32 (−0.33 / 0.77) | 0.20 | — |
+| 63-day rank momentum | 0.31 (0.30 / 0.32) | 0.20 | 0.61 |
+| Donchian breakout | 0.19 (0.37 / −0.01) | 0.31 | 0.53 |
+| 20/60 moving average | 0.09 (0.16 / −0.00) | 0.43 | 0.59 |
+| Hedging pressure | −0.05 (−0.02 / −0.07) | 0.60 | — |
+| Carry | −0.11 (−0.72 / 0.42) | 0.68 | 0.30 |
+
+None clears the bar of q ≤ 0.10 and positive in both halves.
+- **Trend:** positive in the US, but about half as strong as in China. Ten years of monthly
+  returns can't tell a 0.3–0.4 Sharpe apart from luck. The four trend signals are also largely
+  one bet: their returns correlate 0.4–0.9.
+- **Carry:** the best-documented commodity factor lost money. In spring 2020 it was short crude,
+  gasoline and heating oil at peak contango, and those then rallied 19–45% in May.
+- **Costs:** doubling them to 6 bps per side barely changes anything.
 
 
 The futures pipeline is a pandas port of a DolphinDB research lab and is checked against it:
