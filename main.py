@@ -19,6 +19,9 @@ is changed here:
   design    — P3 design space: every pre-registered configuration of score source x
               construction x neutralization x turnover x vol target, plus the walk-forward
               selector that is judged against the simple default (core/design.py).
+  allocate  — P5: combine the US long-short book (after borrow/financing) with the China
+              futures book, walk-forward weights, and pick the vol dial from the drawdown
+              tolerance (core/allocation.py).
   report    — regenerate reports/ (RESULTS.md, results.json, charts): the source of
               every number the README quotes.
 
@@ -34,6 +37,7 @@ alpha.
     python main.py evaluate cn_futures
     python main.py alpha cn_futures
     python main.py design cn_futures
+    python main.py allocate
     python main.py report
 """
 
@@ -319,6 +323,70 @@ def cmd_design(args) -> int:
     return 0
 
 
+def cmd_allocate(args) -> int:
+    """P5: build both books, allocate walk-forward, apply the bars, choose the vol dial; log each as a trial."""
+    from core import allocation as al
+    from core.dataset import load_dataset
+    from core.design import TRACKS, halves, prepare, run_config, run_track, scores_on_grid, simple_default, stats
+    from core.portfolio import to_monthly
+    from core.signals import signals
+    from core.trials import log_trial
+
+    log.info("US long-short book: P3 selector with carrying costs (borrow %.0f / %.0f bps, financing %.0f bps)...",
+             al.BORROW_BPS, al.BORROW_STRESS_BPS, al.FINANCING_BPS)
+    us = load_dataset("us_equity")
+    ctx = prepare(us, signals("us_equity"), sectors=_sectors())
+    us_ls = {bps: run_track(ctx, TRACKS["us_ls"], adjust=al.carry_costs(bps, al.FINANCING_BPS))
+             for bps in (al.BORROW_BPS, al.BORROW_STRESS_BPS)}
+    log.info("China futures book: P3 default...")
+    fut = load_dataset("cn_futures")
+    fctx = prepare(fut, signals("cn_futures"))
+    cfg = simple_default(TRACKS["fut"])
+    fut_book = to_monthly(run_config(fctx, cfg, TRACKS["fut"], scores_on_grid(fctx, cfg.source, "monthly"))["net"])
+
+    out_dir = Path(__file__).resolve().parent / "research" / "output"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for bps, track_out in us_ls.items():
+        stress = bps != al.BORROW_BPS
+        res = al.run({"us_ls": track_out["selector"], "fut": fut_book})
+        w = res["window"]
+        fmt = lambda st: (f"Sharpe {st['sharpe']:+.2f}  CAGR {st['cagr']:+.1%}  vol {st['ann_vol']:.1%}  "  # noqa: E731
+                          f"maxDD {st['max_dd']:.1%}")
+        print(f"\n=== P5 allocation, protocol {al.PROTOCOL}, borrow {bps:.0f} bps"
+              f"{' (STRESS, reported only)' if stress else ''} ===")
+        print(f"joint OOS window {w[0].date()} .. {w[-1].date()} ({len(w)} months); correlation of books {res['corr']:+.2f}")
+        last = track_out["picks"][-1][1].split("|", 1)[1] if track_out["picks"] else "n/a"
+        print(f"US long-short selector (latest pick: {last}), whole history after costs: {fmt(track_out['selector_stats'])}")
+        def by_half(hs):
+            return " | ".join(f"{x['sharpe']:+.2f}" for x in hs)
+        for b, st in res["book_stats"].items():
+            print(f"  book {b:7s} window: {fmt(st)}   halves: {by_half(res['book_halves'][b])}")
+        for m, st in res["combo_stats"].items():
+            print(f"  {m:13s} window: {fmt(st)}   halves: {by_half(res['combo_halves'][m])}")
+        print(f"bar 1 (risk parity beats each book in both halves): {res['bar1']}")
+        print(f"bar 2 (max_sharpe beats risk parity in both halves): {res['bar2']} -> adopted {res['adopted']}")
+        print("vol dial (adopted combination, walk-forward leverage, cap 4x):")
+        for t, d in res["dial"].items():
+            print(f"  target {t:.0%}: {fmt(d)}  worst year {d['worst_year']:+.1%} ({d['worst_year_at']})  "
+                  f"avg lev {d['avg_lev']:.2f}x (max {d['max_lev']:.2f}x)  95th-pct 10y maxDD {d['dd95_10y']:.1%}")
+        ch = res["chosen_target"]
+        print(f"VERDICT: chosen vol target {ch:.0%}" if ch else "VERDICT: no target keeps the 95th-pct 10y maxDD <= 35%")
+        if stress:
+            continue
+        pd.DataFrame({**{b: res["books"][b] for b in res["books"]},
+                      **{m: c["ret"] for m, c in res["combos"].items()},
+                      **{f"dial_{t:.0%}": d["series"] for t, d in res["dial"].items()}}).to_csv(out_dir / "allocation.csv")
+        if not args.dry_run:
+            for name, series in [*((m, c["ret"]) for m, c in res["combos"].items()),
+                                 *((f"{res['adopted']}_vt{int(t * 100)}", d["series"]) for t, d in res["dial"].items())]:
+                h1, h2 = halves(series, w)
+                log_trial({"signal": f"p5|{name}", "asset_class": "multi", "family": "p5_allocation",
+                           "kind": "allocation", "sign": 1, "published": None, "start": str(w[0].date()),
+                           "end": str(w[-1].date()), **stats(series), "h1": h1, "h2": h2},
+                          protocol=al.PROTOCOL, note=args.note)
+    return 0
+
+
 def cmd_report(args) -> int:
     """Regenerate reports/ (RESULTS.md, results.json, charts) from the local archive."""
     from research.report import main as report_main
@@ -332,7 +400,7 @@ def cmd_paper(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """CLI with the eight subcommands."""
+    """CLI with the nine subcommands."""
     parser = argparse.ArgumentParser(prog="main.py", description="pit-backtester — integrated entry point.")
     subparsers = parser.add_subparsers(dest="command", required=True)
     for name, func, help_text in [
@@ -369,6 +437,12 @@ def build_parser() -> argparse.ArgumentParser:
     design_parser.add_argument("--note", default="", help="free-text note stored with each trial")
     design_parser.add_argument("--dry-run", action="store_true", help="run without logging trials")
     design_parser.set_defaults(func=cmd_design)
+    # P5 allocation across books + vol dial (core/allocation.py).
+    alloc_parser = subparsers.add_parser(
+        "allocate", help="P5: combine the US long-short and futures books walk-forward and choose the vol dial")
+    alloc_parser.add_argument("--note", default="", help="free-text note stored with each trial")
+    alloc_parser.add_argument("--dry-run", action="store_true", help="run without logging trials")
+    alloc_parser.set_defaults(func=cmd_allocate)
     # Monthly paper rebalance for a portfolio strategy (existing DU + DRY_RUN + gate path).
     paper_parser = subparsers.add_parser(
         "paper", help="run one monthly paper rebalance for a portfolio strategy")

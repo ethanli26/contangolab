@@ -215,7 +215,9 @@ def verdict(sel_h: tuple[dict, dict], simple_h: tuple[dict, dict], pbo: float | 
     return {"adopt": adopt, "beats_simple_both_halves": beats, "reason": reason}
 
 
-def run_track(ctx: Context, track: Track, benchmark: pd.Series | None = None) -> dict:
+def run_track(ctx: Context, track: Track, benchmark: pd.Series | None = None, adjust=None) -> dict:
+    """Run every configuration of a track. ``adjust(daily) -> daily`` (optional) is applied to each
+    configuration's daily frame before anything is measured, e.g. P5's carrying costs."""
     from research.cpcv import deflated_sharpe_ratio, probability_of_backtest_overfitting
 
     cfgs = grid(track)
@@ -225,7 +227,8 @@ def run_track(ctx: Context, track: Track, benchmark: pd.Series | None = None) ->
         key = (cfg.source, grid_name)
         if key not in cache:
             cache[key] = scores_on_grid(ctx, cfg.source, grid_name)
-        daily[cfg.name] = run_config(ctx, cfg, track, cache[key])
+        d = run_config(ctx, cfg, track, cache[key])
+        daily[cfg.name] = adjust(d) if adjust is not None and len(d) else d
     matrix = pd.DataFrame({n: to_monthly(d["net"]) for n, d in daily.items() if len(d)})
     switch_cost = 2 * ctx.ds.cost_bps_per_side / 1e4
     sel, picks = select(matrix, switch_cost)

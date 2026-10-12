@@ -105,7 +105,8 @@ def vol_scale(w: pd.Series, returns: pd.DataFrame, pos: int, target: float, cap:
 
 
 def simulate(targets: dict, returns: pd.DataFrame, cost_bps: float) -> pd.DataFrame:
-    """Daily net return, gross return and cost of a book rebalanced to ``targets`` {date: weights}."""
+    """Daily net/gross return, trading cost, turnover and end-of-day long/short exposure of a book
+    rebalanced to ``targets`` {date: weights}."""
     idx = returns.index
     dates = sorted(targets)
     prev = pd.Series(dtype=float)
@@ -123,11 +124,14 @@ def simulate(targets: dict, returns: pd.DataFrame, cost_bps: float) -> pd.DataFr
         gross = value / np.concatenate([[1.0], value[:-1]]) - 1.0
         cost = np.zeros(len(block))
         cost[0] = turnover * cost_bps / 1e4
+        held = growth.to_numpy() / value[:, None]                     # drifted weight per unit of w
+        wv = w.to_numpy() if len(w) else np.zeros(0)
         frames.append(pd.DataFrame({"gross": gross, "cost": cost, "net": gross - cost,
-                                    "turnover": np.where(np.arange(len(block)) == 0, turnover, 0.0)},
+                                    "turnover": np.where(np.arange(len(block)) == 0, turnover, 0.0),
+                                    "long": held @ np.clip(wv, 0, None), "short": held @ np.clip(-wv, 0, None)},
                                    index=block.index))
         prev = (w * growth.iloc[-1] / value[-1]) if len(w) else w
-    return pd.concat(frames) if frames else pd.DataFrame(columns=["gross", "cost", "net", "turnover"])
+    return pd.concat(frames) if frames else pd.DataFrame(columns=["gross", "cost", "net", "turnover", "long", "short"])
 
 
 def to_monthly(daily: pd.Series) -> pd.Series:
