@@ -187,6 +187,27 @@ it picks 15% instead. The leverage assumes institutional portfolio margin, and m
 futures aren't open to foreign retail accounts. Treat this as a property of the strategy,
 not a deployable plan.
 
+**US event-driven signals (E1): none survive in liquid US stocks.** Five classic event
+signals were tested as weekly long-only portfolios, net of costs, against the equal-weight
+universe: earnings surprise (SUE), the 3-day earnings-announcement return, a "double surprise"
+of both, insider purchase clusters, and dividend initiations.
+
+| Signal (since) | Excess return / yr | IR (h1 / h2) | Long−short IR |
+|---|---|---|---|
+| Earnings surprise, top decile (1999) | +0.2% | 0.03 (0.02 / 0.06) | 0.19 |
+| Announcement return, top decile (2004) | −0.8% | −0.12 (0.00 / −0.21) | 0.27 |
+| Double surprise (2004) | −0.6% | −0.09 | — |
+| Insider purchase cluster (2008) | −4.6% | −0.54 | — |
+| Dividend initiation (2000) | −9.8% | −0.46 | — |
+
+![Drift after events](reports/events_car.png)
+
+The chart shows why. In the 1,500 most liquid US stocks, good news is priced almost
+immediately: the top deciles drift to about zero. Insider buying shows up as a +0.8% jump the
+day after the filing, which a weekly rebalance can't catch. Bad news still drifts (bottom
+deciles −1.2% over three months), but profiting from that requires shorting. This matches the
+published finding that post-earnings drift has mostly disappeared outside small, illiquid stocks.
+
 
 The futures pipeline is a pandas port of a DolphinDB research lab and is checked against it:
 `research/reconcile_futures.py` shows the continuous-contract panel (157,395 rows) and the
@@ -234,7 +255,7 @@ daily P&L of all six ported futures strategies identical to floating-point preci
 
 ## Running
 
-`main.py` is the single entry point, with nine subcommands:
+`main.py` is the single entry point, with ten subcommands:
 
 ```
 python main.py factors                          # test each factor for predictive power
@@ -245,6 +266,7 @@ python main.py evaluate us_equity                # every registered signal, logg
 python main.py alpha us_equity                   # walk-forward signal combinations, logged as trials
 python main.py design us_equity                  # P3 design space + walk-forward selector (~15 min)
 python main.py allocate                          # P5: combine books + leverage dial (~15 min)
+python main.py events                            # E1: US event signals + the drift chart (~10 min)
 python main.py paper vol_managed_momentum        # one monthly paper rebalance (needs TWS/IB Gateway)
 ```
 
