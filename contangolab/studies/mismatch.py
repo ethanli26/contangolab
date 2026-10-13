@@ -162,7 +162,7 @@ def chart(out: dict, verdicts: dict, path=RESULTS / "curve_mismatch.png") -> Non
             ax.plot(m_idx, (1 + mo).cumprod(), color=color, linewidth=1.6,
                     label=f"{lab}  (Sharpe {r['sharpe']:+.2f})")
         ax.axhline(1, color=MUTED, linewidth=0.7)
-        ax.legend(frameon=False, fontsize=8, loc="upper left", labelcolor=INK)
+        ax.legend(frameon=False, fontsize=8, loc="lower left", labelcolor=INK)
     fig.subplots_adjust(top=0.78, bottom=0.10, left=0.07, right=0.98, wspace=0.22)
     passed = [COUNTRY[c] for c in ("cn", "us") if verdicts[c]["survivor"]]
     headline(fig, "Trading the gap between the curve and the warehouse"

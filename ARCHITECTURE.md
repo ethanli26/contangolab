@@ -99,6 +99,7 @@ with `python -m contangolab study <name>`, or all of them with `study all`.
 | `storage` | Do inventories set the curve (theory of storage)? | H3 |
 | `volatility` | Does backwardation warn of volatility? | H4 |
 | `cases` | What did whole curves look like in April 2020 and March 2022? | descriptive |
+| `mismatch` | Does a curve that disagrees with inventories correct, and can a calendar spread earn it? Run with `--log` to append its trials. | CL2 |
 | `cross_market` | Do the same trading signals work in both countries over the same years? | from the trial log |
 | `reconcile_dolphindb` | Does the China pipeline match the DolphinDB build it was ported from? | exact match |
 
