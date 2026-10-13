@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Ethan Li" }]
 license = { text = "MIT" }
-dependencies = ["pandas", "numpy", "scipy", "matplotlib", "pyarrow", "xgboost", "scikit-learn", "python-dotenv"]
+dependencies = ["pandas", "numpy", "scipy", "matplotlib", "pyarrow", "xgboost", "scikit-learn", "python-dotenv", "requests", "xlrd"]
 
 [project.optional-dependencies]
 data = ["databento"]

@@ -7,4 +7,6 @@ pyarrow                 # parquet caches
 xgboost                 # the gradient-boosted combination (engine/combine.py)
 scikit-learn            # required by the XGBRegressor wrapper
 python-dotenv           # local .env overrides
+requests                # EIA and FRED downloads (markets/inventory.py)
+xlrd                    # reads EIA's full-history .xls files
 databento               # only to download CME data (markets/databento.py)
