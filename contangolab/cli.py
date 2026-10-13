@@ -4,7 +4,8 @@
     python -m contangolab combine cn_futures        # walk-forward signal combination vs the best single signal
     python -m contangolab design cn_futures         # the 32-configuration portfolio grid + walk-forward selector
     python -m contangolab trials                    # every logged trial with Benjamini-Hochberg q-values
-    python -m contangolab study cross_market        # regenerate one study's tables and charts in results/
+    python -m contangolab study atlas               # regenerate one study's tables and charts in results/
+    python -m contangolab study all                 # every study (atlas, twins, storage, volatility, cases, cross_market)
 
 Markets: ``cn_futures`` (71 China commodity futures) and ``us_futures`` (24 CME Group commodities).
 Every evaluation appends to ``results/trials.jsonl``, so the multiple-testing correction always
@@ -22,7 +23,7 @@ from contangolab import config
 
 log = logging.getLogger("contangolab")
 
-STUDIES = ("cross_market",)
+STUDIES = ("atlas", "twins", "storage", "volatility", "cases", "cross_market")
 
 
 def cmd_evaluate(args) -> int:
@@ -156,8 +157,12 @@ def cmd_trials(args) -> int:
 
 
 def cmd_study(args) -> int:
-    """Run a study module's ``main()`` (tables to stdout, charts to results/)."""
-    return importlib.import_module(f"contangolab.studies.{args.name}").main() or 0
+    """Run a study module's ``main()`` (tables to stdout, charts to results/); ``all`` runs every one in turn."""
+    names = STUDIES if args.name == "all" else (args.name,)
+    for name in names:
+        log.info("study %s", name)
+        importlib.import_module(f"contangolab.studies.{name}").main()
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -183,7 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--market", default=None, help="only this market (cn_futures, us_futures)")
     tr.set_defaults(func=cmd_trials)
     st = sub.add_parser("study", help="regenerate one study's tables and charts")
-    st.add_argument("name", choices=STUDIES)
+    st.add_argument("name", choices=(*STUDIES, "all"))
     st.set_defaults(func=cmd_study)
     return parser
 
