@@ -49,6 +49,15 @@ def test_settlements_without_a_final_flag_fall_back_to_the_last_published():
     assert bars["close"].tolist() == [85.39] and bars["sym"].tolist() == ["CL1212"]
 
 
+def test_a_final_settlement_sent_after_the_next_session_settled_is_ignored():
+    # CLK0, April 2020: 17 Apr final 18.27; 20 Apr preliminary -37.63; then a "final" dated 17 Apr at -37.63
+    stats = _stats([("2020-04-17", "CLK0", 3, 18.27, 0, 2, 1), ("2020-04-17", "CLK0", 3, 18.27, 0, 3, 1),
+                    ("2020-04-20", "CLK0", 3, -37.63, 0, 2, 1), ("2020-04-17", "CLK0", 3, -37.63, 0, 3, 1)])
+    bars = contract_bars(stats, pd.DataFrame(columns=["open", "high", "low", "symbol"],
+                                             index=pd.DatetimeIndex([], tz="UTC")))
+    assert bars["close"].tolist() == [18.27, -37.63]
+
+
 def _cot_zip(tmp_path, rows):
     df = pd.DataFrame(rows, columns=["Report_Date_as_YYYY-MM-DD", "CFTC_Contract_Market_Code",
                                      "Prod_Merc_Positions_Long_All", "Prod_Merc_Positions_Short_All"])

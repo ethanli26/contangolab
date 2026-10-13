@@ -17,6 +17,9 @@ US-specific choices, fixed before any backtest:
     CME's feed only flags settlements final from ~2016-17; before that (flags 0 or 4) the close
     is the last settlement published for the trade date. Where both exist (1.61M contract-days,
     2017-06 on) the last published equals the final one 100.0% of the time.
+    A settlement record that arrives after a newer trade date's settlement for the same contract is
+    ignored: on 3 contract-days CME sent the next session's price as a "final" for the previous
+    session (CLK0 on 2020-04-17 would otherwise read -37.63, the 2020-04-20 price, instead of 18.27).
   * open interest for trade date t arrives that evening (preliminary) and is revised the next
     morning, so the loader sees each contract's OI one trading day late (the main chosen at the
     close of t uses OI of t-1).
@@ -69,8 +72,15 @@ def contract_bars(stats: pd.DataFrame, ohlcv: pd.DataFrame) -> pd.DataFrame:
     st = st.sort_index(kind="stable")                                    # ts_recv: arrival order
     st = st.assign(date=pd.to_datetime(st["ts_ref"]).dt.tz_localize(None).dt.normalize())
     settles = st[st["stat_type"] == SETTLEMENT]
-    final = settles[(settles["stat_flags"] & FINAL_FLAG) > 0]
-    final = final.drop_duplicates(["date", "symbol"], keep="last").set_index(["date", "symbol"])["price"]
+    is_final = (settles["stat_flags"] & FINAL_FLAG) > 0
+    # A settlement that arrives after the contract's settlement for a LATER trade date was published is stale: CME
+    # occasionally re-sends the next session's price labeled with the previous session (CLK0 2020-04-17 came in
+    # again at -37.63, the 2020-04-20 price). 3 of 2.03M contract-days; see the module docstring.
+    newest = settles["date"].where(~is_final).groupby(settles["symbol"]).cummax()
+    newest = newest.groupby(settles["symbol"]).ffill()
+    settles = settles[~(newest > settles["date"])]
+    is_final = (settles["stat_flags"] & FINAL_FLAG) > 0
+    final = settles[is_final].drop_duplicates(["date", "symbol"], keep="last").set_index(["date", "symbol"])["price"]
     latest = settles.drop_duplicates(["date", "symbol"], keep="last").set_index(["date", "symbol"])["price"]
     settle = final.combine_first(latest)
     oi = st[st["stat_type"] == OPEN_INTEREST].drop_duplicates(["date", "symbol"], keep="last")
