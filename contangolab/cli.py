@@ -23,7 +23,7 @@ from contangolab import config
 
 log = logging.getLogger("contangolab")
 
-STUDIES = ("atlas", "twins", "storage", "volatility", "cases", "cross_market")
+STUDIES = ("atlas", "twins", "storage", "volatility", "cases", "cross_market", "mismatch")
 
 
 def cmd_evaluate(args) -> int:
