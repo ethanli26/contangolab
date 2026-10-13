@@ -1,21 +1,10 @@
-# Core dependencies for pit-backtester.
-# After your first install, you can pin exact versions with: pip freeze > requirements.txt
-
-# Data
-yfinance                # free-data comparison universes + the SPY cache
-nasdaq-data-link        # Sharadar point-in-time prices + fundamentals (imports as `nasdaqdatalink`)
-pyarrow                 # parquet caches (backtest/cache, data/cache/sharadar)
-
-# Analysis
+# Runtime dependencies (also declared in pyproject.toml).
 pandas
 numpy
-scipy                   # research/cpcv.py: skew, kurtosis, the normal CDF
-matplotlib              # research/report.py: the charts in reports/
-xgboost                 # core/alpha.py: the gradient-boosted combination
+scipy                   # the Deflated Sharpe Ratio, p-values
+matplotlib              # the charts in results/
+pyarrow                 # parquet caches
+xgboost                 # the gradient-boosted combination (engine/combine.py)
 scikit-learn            # required by the XGBRegressor wrapper
-
-# Broker / execution
-ib_async
-
-# Config
-python-dotenv
+python-dotenv           # local .env overrides
+databento               # only to download CME data (markets/databento.py)

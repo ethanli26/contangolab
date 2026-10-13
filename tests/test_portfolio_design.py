@@ -8,11 +8,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from core.dataset import Dataset
-from core.design import TRACKS, Config, grid, prepare, run_config, scores_on_grid, select, simple_default, verdict
-from core.portfolio import buffered_top, construct, ex_ante_vol, neutralize, simulate, to_monthly, vol_scale
-from core.signals import SignalSpec
-from factors.base import FactorData
+from contangolab.engine.dataset import Dataset, FactorData
+from contangolab.engine.design import TRACKS, Config, grid, prepare, run_config, scores_on_grid, select, simple_default, verdict
+from contangolab.engine.portfolio import buffered_top, construct, ex_ante_vol, neutralize, simulate, to_monthly, vol_scale
+from contangolab.signals.registry import SignalSpec
 
 DAYS = pd.bdate_range("2020-01-01", periods=6)
 
@@ -97,8 +96,8 @@ def _synthetic(close=None, seed=0):
 
 def test_config_run_has_no_look_ahead():
     ds, specs = _synthetic()
-    track = TRACKS["us_lo"]
-    cfg = Config("us_lo", "best_trailing", "top20_ew", False, "buffer", True)
+    track = TRACKS["fut"]
+    cfg = Config("fut", "best_trailing", "ls_quintile", False, "monthly", True)
     ctx = prepare(ds, specs, min_train=24)
     base = run_config(ctx, cfg, track, scores_on_grid(ctx, cfg.source, "monthly"))
     cut = base.index[len(base) // 2]
@@ -127,8 +126,8 @@ def test_selector_uses_only_the_past_and_switches_to_the_better_config():
 
 
 def test_grid_sizes_match_the_pre_registration():
-    assert [len(grid(TRACKS[t])) for t in ("us_ls", "us_lo", "fut")] == [32, 96, 32]
-    assert simple_default(TRACKS["us_lo"]).name == "us_lo|all_ew|top50_ew|raw|none|novt"
+    assert len(grid(TRACKS["fut"])) == 32
+    assert simple_default(TRACKS["fut"]).name == "fut|all_ew|ts|raw|monthly|novt"
 
 
 @pytest.mark.parametrize("sel, simple, pbo, adopt", [

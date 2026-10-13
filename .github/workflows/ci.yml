@@ -40,7 +40,6 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Run the offline test suite with coverage
-        # The whole suite is offline/deterministic — no network, no broker, no live
-        # Sharadar calls (SharadarUnavailable/cache-miss paths are what's tested).
+        # Offline and deterministic: synthetic markets only, no licensed data, no network.
         run: |
           pytest --cov --cov-report=term-missing

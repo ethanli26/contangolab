@@ -9,11 +9,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from core.dataset import Dataset
-from core.evaluate import evaluate, month_ends, monthly_series
-from core.signals import SignalSpec, get_signal, signals
-from core.trials import bh_qvalues, correction_table, load_trials, log_trial, one_sided_p, search_summary
-from factors.base import FactorData
+from contangolab.engine.dataset import Dataset, FactorData
+from contangolab.engine.evaluate import evaluate, month_ends, monthly_series
+from contangolab.engine.trials import bh_qvalues, correction_table, load_trials, log_trial, one_sided_p, search_summary
+from contangolab.signals.registry import SignalSpec, get_signal, signals
 
 N_DAYS, N_ASSETS = 2200, 60
 
@@ -119,9 +118,9 @@ def test_trial_registry_round_trip_and_correction(tmp_path):
     assert search_summary(trials)["n_trials"] == 3
 
 
-def test_registry_holds_both_asset_classes_with_fixed_signs():
-    us, fut = signals("us_equity"), signals("cn_futures")
-    assert {"momentum_12_1", "profitability", "accruals"} <= {s.name for s in us}
-    assert {"fut_ma20_60", "fut_rank63", "fut_carry"} <= {s.name for s in fut}
-    assert get_signal("accruals").sign == -1 and get_signal("momentum_12_1").sign == +1
+def test_registry_holds_both_markets_with_fixed_signs():
+    cn, us = signals("cn_futures"), signals("us_futures")
+    assert {"fut_ma20_60", "fut_rank63", "fut_carry"} <= {s.name for s in cn}
+    assert {"usf_carry", "usf_basismom", "usf_hedgep"} <= {s.name for s in us}
+    assert all(s.sign == +1 for s in cn + us)
     assert get_signal("fut_ts12").kind == "time_series" and get_signal("fut_ts12").published == 2012

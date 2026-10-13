@@ -1,14 +1,29 @@
 [project]
-name = "pit-backtester"
-version = "1.0.0"
-description = "Point-in-time-correct backtesting and validation for equity factor strategies."
+name = "contangolab"
+version = "2.0.0"
+description = "What futures curves say about commodity markets: China vs US, 95 markets, one pipeline."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Ethan Li" }]
 license = { text = "MIT" }
+dependencies = ["pandas", "numpy", "scipy", "matplotlib", "pyarrow", "xgboost", "scikit-learn", "python-dotenv"]
+
+[project.optional-dependencies]
+data = ["databento"]
+dev = ["pytest>=7.0", "pytest-cov>=4.0", "ruff>=0.6"]
+
+[project.scripts]
+contangolab = "contangolab.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["contangolab*"]
 
 [tool.coverage.run]
-source = ["data", "factors", "research", "strategies", "backtest", "decision", "execution", "storage"]
+source = ["contangolab"]
 
 [tool.ruff]
 line-length = 130
@@ -22,5 +37,4 @@ select = ["E", "F", "W", "I", "B", "UP"]
 ignore = ["B905"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["backtest", "config", "data", "decision", "execution", "factors", "research",
-                     "storage", "strategies"]
+known-first-party = ["contangolab"]
