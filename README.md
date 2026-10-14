@@ -25,7 +25,7 @@ to git before it was run.
 |---|---|---|
 | 1 | **Inventories set the shape of the curve.** When stocks are above their seasonal norm, the curve moves toward contango, as the theory of storage predicts. | 25 of 27 China markets (warehouse receipts) and all 4 US energy markets (EIA stocks). Pre-registered test passed in both countries (sign test p = 3×10⁻⁶). |
 | 2 | **A backwardated curve warns of volatility.** With no inventory buffer, shocks hit price. | Next-month volatility runs 16% (China) and 20% (US) above normal in the most backwardated third of days, in 53 of 63 and 17 of 18 markets. |
-| 3 | **China's curves run tighter than America's.** Same years, very different storage economics. | Backwardated on 54% vs 20% of days in grains, and on 42% of days in Chinese base metals vs 11% for US copper. Chinese iron ore: 99% of days. |
+| 3 | **China's curves run tighter than America's.** Same years, very different storage economics. | Backwardated on 54% vs 20% of days in grains, and on 42% of days in Chinese base metals vs 11% for US copper. Chinese iron ore: 99% of days (2019–26), under every contract choice tested. |
 | 4 | **Gold's US curve is an interest rate.** COMEX gold contango tracks the 3-month T-bill almost one-for-one. Shanghai's does not, so the pre-registered test failed. | US slope 0.91, R² 0.91. China slope 0.12, R² 0.01. |
 | 5 | **Trading the curve did not pay in the US.** Trend and momentum survive multiple-testing correction in China, but nothing does in the US. Carry lost money, short crude into the 2020 rebound. | China: 5 of 6 signals survive (best Sharpe 0.66). US: 0 of 8. 222 tests logged and corrected together. |
 | 6 | **When the curve and inventories disagree, the gap does not close within a week.** Calendar spreads betting on the curve snapping back to its inventory-implied level lost money in both countries. | Net Sharpe −0.43 (China, 27 markets) and −0.28 (US, 4 markets). Pre-registered test failed. |
@@ -42,7 +42,7 @@ backwardation and blue is contango.
   curves only reflect the cost of financing the metal.
 - **Energy** flips with the cycle. US energy curves were backwardated on 10% of days in 2016 and
   22% in 2020, then 75% in 2021 and 86% in 2022.
-- **China's ferrous complex** (iron ore, coke, rebar) is backwardated three days in four.
+- **China's ferrous complex** is backwardated three days in four on average, led by iron ore (99%) and coke (80%).
 
 ## 2. Same commodity, two curves
 

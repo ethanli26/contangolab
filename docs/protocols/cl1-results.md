@@ -147,3 +147,40 @@ Chart: `results/april_2020.png`.
 - Ordinary contango, never negative, with the 12th contract about 56–58 yuan above the front.
 
 **8 March 2022:** WTI April 2022 was at 123.70, $43 above March 2024.
+
+## Audit (2026-10-14): does backwardation depend on which contract the slope uses?
+
+The Study 1 caveat above, tested. The atlas slope compares the held contract with the nearest later
+contract that has any open interest. In Chinese markets that contract is often thin: its median open
+interest is 5% of the dominant contract's for iron ore and 0.1–0.6% for coke, coking coal, rebar and
+hot-rolled coil. So the slope was rebuilt from every listed contract in three more ways (dominant vs
+nearest later, vs most-held later, vs nearest later with ≥10% of the dominant OI), plus the share of
+downward steps along the whole liquid curve. Module: `contangolab/studies/robustness.py`
+(`python -m contangolab study robustness`), table in `results/slope_robustness.csv`.
+
+Share of liquid days in backwardation:
+
+| Market | Window | Atlas | Next | Most-held | ≥10% OI | Whole curve, steps down |
+|---|---|---|---|---|---|---|
+| Iron ore (DCE) | 2019-04 – 2026-10 | 98.6% | 98.7% | 99.7% | 98.9% | 97.6% |
+| Coke (DCE) | 2019-04 – 2026-10 | 79.8% | 79.8% | 85.8% | 80.2% | 69.1% |
+| Coking coal (DCE) | 2019-09 – 2026-10 | 58.0% | 57.8% | 64.2% | 55.3% | 53.1% |
+| Rebar (SHFE) | 2010-04 – 2026-10 | 64.7% | 64.6% | 51.3% | 61.2% | 57.5% |
+| Hot-rolled coil (SHFE) | 2014-06 – 2026-10 | 63.9% | 63.8% | 74.3% | 76.8% | 70.6% |
+| WTI crude (CME) | 2016-02 – 2026-10 | 62.8% | 59.7% | 64.5% | 59.7% | 70.3% |
+| Natural gas (CME) | 2016-02 – 2026-10 | 27.2% | 27.1% | 29.3% | 27.1% | 36.9% |
+| Copper (CME) | 2016-02 – 2026-10 | 10.5% | 10.6% | 10.9% | 10.8% | 13.4% |
+
+**Findings:**
+- **Iron ore's 99% is robust.** Every contract choice gives 98–100%, and 97.6% of steps along the
+  liquid curve slope down. The median slope is +15% a year. It is a property of the curve, not of a
+  thin contract. The window is 2019–26, because the Dalian data here starts in January 2019 (iron ore
+  listed in 2013), so the figure says nothing about 2013–18.
+- **Rebar and hot-rolled coil are sensitive.** Rebar ranges from 51% to 65% and HRC from 64% to 77%
+  depending on the contract compared. Their next contract holds about 0.1–0.2% of the dominant OI,
+  so single-market rebar and HRC shares should be quoted as a range. All five ferrous markets
+  tested stay above 50% under every measure, so "mostly backwardated" holds; the 74% sector
+  average (nine markets) was not recomputed.
+- **US markets are stable** (within about 5 points), as expected with synchronous settlements and
+  liquid next contracts. WTI is the exception on the whole-curve measure (70% vs 63%), because its
+  back months are backwardated more often than the front spread.

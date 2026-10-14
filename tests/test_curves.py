@@ -60,3 +60,17 @@ def test_tickers_that_collide_across_countries_stay_apart():
     assert sector("cn", "SI") == "Base metals" and sector("us", "SI") == "Precious metals"
     assert label("cn", "RB") != label("us", "RB")
     assert ("Gold", "AU", "GC") in TWINS and len(TWINS) == 9
+
+
+def test_alt_slopes_sees_past_a_stale_thin_next_contract():
+    from contangolab.studies.robustness import alt_slopes
+
+    # Liquid Jan/May/Sep curve in contango (May dearer), with a thin Feb contract at a stale low price.
+    day = pd.Timestamp("2024-11-01")
+    c = pd.DataFrame({"date": day, "expKey": [202501, 202502, 202505, 202509],
+                      "close": [100.0, 90.0, 104.0, 108.0], "oi": [1000.0, 3.0, 800.0, 500.0]})
+    s = alt_slopes(c).iloc[0]
+    assert s["next"] > 0                    # nearest later contract (thin Feb) reads as backwardation
+    assert s["most_held"] < 0 and s["oi_10pct"] < 0   # the liquid May contract shows the real contango
+    assert s["curve_down"] == 0.0           # Feb is below 5% of front OI, so it is off the curve
+    assert np.isclose(s["most_held"], np.log(100 / 104) * 12 / 4)
